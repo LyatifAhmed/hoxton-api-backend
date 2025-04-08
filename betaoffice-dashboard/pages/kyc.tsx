@@ -20,7 +20,8 @@ export default function KYCForm() {
   const fetchAddresses = async () => {
     if (!postcode) return;
     try {
-      const res = await axios.get(`http://localhost:8000/api/address-lookup?postcode=${encodeURIComponent(postcode)}`);
+      const res = await axios.get(`https://hoxton-api-backend.onrender.com/api/address-lookup?postcode=${postcode}`)
+
       setAddressOptions(res.data.addresses.map((a: string) => ({ label: a, value: a })));
     } catch (err) {
       console.error("Address lookup failed", err);
