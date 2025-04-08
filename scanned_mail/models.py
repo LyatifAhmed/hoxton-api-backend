@@ -16,5 +16,6 @@ class ScannedMail(Base):
     url_envelope_front = Column(String)  # Envelope front image
     url_envelope_back = Column(String)  # Envelope back image
     received_at = Column(DateTime, default=datetime.utcnow)
+    company_name = Column(String, nullable=True)
 
 
