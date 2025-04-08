@@ -1,21 +1,33 @@
+import requests
 import os
 import aiohttp
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime
 from dotenv import load_dotenv
-
+from fastapi.middleware.cors import CORSMiddleware
 from scanned_mail.database import SessionLocal, engine
 from scanned_mail.models import ScannedMail, Base
 
 # Load environment variables
 load_dotenv()
 
-# Create app
+# Initialize FastAPI app
 app = FastAPI()
 
-# Basic Auth setup
+GETADDRESS_API_KEY = os.getenv("GETADDRESS_API_KEY")
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Consider replacing with ["https://betaoffice.uk"] in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Basic Auth credentials from .env
 security = HTTPBasic()
 WEBHOOK_USER = os.getenv("WEBHOOK_USER")
 WEBHOOK_PASS = os.getenv("WEBHOOK_PASS")
@@ -23,11 +35,11 @@ WEBHOOK_PASS = os.getenv("WEBHOOK_PASS")
 # Auto-create database tables
 Base.metadata.create_all(bind=engine)
 
-# File saving setup
+# Ensure directory for downloaded files
 SAVE_DIR = "scanned_mail"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# DB dependency
+# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -35,52 +47,57 @@ def get_db():
     finally:
         db.close()
 
-# File downloader
+# Function to download files from given URL
 async def download_file(url, filename):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                content = await resp.read()
-                with open(os.path.join(SAVE_DIR, filename), 'wb') as f:
-                    f.write(content)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    content = await resp.read()
+                    with open(os.path.join(SAVE_DIR, filename), 'wb') as f:
+                        f.write(content)
+    except Exception as e:
+        print(f"⚠️ Failed to download {url}: {e}")
 
-# Webhook endpoint
+# Webhook endpoint to receive scanned mail from Hoxton Mix
 @app.post("/webhook")
 async def receive_webhook(
     request: Request,
     credentials: HTTPBasicCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    # Auth check
+    # BasicAuth check
     if credentials.username != WEBHOOK_USER or credentials.password != WEBHOOK_PASS:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     data = await request.json()
     print("📬 Webhook received:", data)
 
-    # Save file URLs
     external_id = data.get("external_id")
-    urls = [
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+
+    # Download any available files
+    for suffix, url in [
         ("pdf", data.get("url")),
         ("front", data.get("url_envelope_front")),
         ("back", data.get("url_envelope_back")),
-    ]
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    for suffix, url in urls:
+    ]:
         if url:
             filename = f"{external_id}_{suffix}_{timestamp}.pdf"
             await download_file(url, filename)
 
-    # Save to DB
+    # Save mail metadata to the database
     mail = ScannedMail(
         external_id = external_id,
-        sender_name = data.get("ai_metadata", {}).get("sender_name"),
-        document_title = data.get("ai_metadata", {}).get("document_title"),
-        summary = data.get("ai_metadata", {}).get("summary"),
+        sender_name = data.get("sender_name", "N/A"),
+        document_title = data.get("document_title", "N/A"),
+        summary = data.get("summary", "N/A"),
         url = data.get("url"),
         url_envelope_front = data.get("url_envelope_front"),
         url_envelope_back = data.get("url_envelope_back"),
+        company_name = data.get("company_name", "Unknown Company"),
     )
+
     db.add(mail)
     db.commit()
     db.refresh(mail)
@@ -88,5 +105,23 @@ async def receive_webhook(
     print(f"✅ All files processed for: {external_id}")
     return {"status": "Webhook saved", "id": mail.id}
 
+# GET endpoint to retrieve paginated mail entries
+@app.get("/mails")
+def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
+    return db.query(ScannedMail)\
+             .order_by(ScannedMail.received_at.desc())\
+             .offset(skip)\
+             .limit(limit)\
+             .all()
+
+@app.get("/api/address-lookup")
+def address_lookup(postcode: str):
+    try:
+        url = f"https://api.getaddress.io/find/{postcode}?api-key={GETADDRESS_API_KEY}"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Address lookup failed: {e}")
 
 
