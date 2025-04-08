@@ -119,6 +119,8 @@ def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
 def address_lookup(postcode: str):
     url = f"https://api.getaddress.io/find/{postcode}?api-key={GETADDRESS_API_KEY}"
     try:
+        print("Resolved GETADDRESS_API_KEY:", GETADDRESS_API_KEY)
+
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
