@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from scanned_mail.database import SessionLocal, engine
 from scanned_mail.models import ScannedMail, Base
+from fastapi.responses import JSONResponse
 
 # Load environment variables
 load_dotenv()
@@ -116,12 +117,13 @@ def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
 
 @app.get("/api/address-lookup")
 def address_lookup(postcode: str):
+    url = f"https://api.getaddress.io/find/{postcode}?api-key={GETADDRESS_API_KEY}"
     try:
-        url = f"https://api.getaddress.io/find/{postcode}?api-key={GETADDRESS_API_KEY}"
         response = requests.get(url)
         response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Address lookup failed: {e}")
+        data = response.json()
+        return JSONResponse(content={"addresses": data.get("addresses", [])})
+    except requests.exceptions.RequestException as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
