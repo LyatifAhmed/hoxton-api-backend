@@ -1,25 +1,30 @@
-import requests
 import os
 import aiohttp
-from fastapi import FastAPI, Request, Depends, HTTPException, Query
+import requests
+from urllib.parse import quote_plus
+from fastapi import FastAPI, Request, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from requests.auth import HTTPBasicAuth
+
 from scanned_mail.database import SessionLocal, engine
 from scanned_mail.models import ScannedMail, Base
-from fastapi.responses import JSONResponse
 
 # Load environment variables
 load_dotenv()
 
-# Initialize FastAPI app
+# FastAPI app
 app = FastAPI()
 
+# Load API keys from env
 GETADDRESS_API_KEY = os.getenv("GETADDRESS_API_KEY")
+COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY")
 
-# Enable CORS
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://betaoffice.uk", "http://localhost:3000"],
@@ -28,19 +33,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Basic Auth credentials from .env
+# Basic Auth
 security = HTTPBasic()
 WEBHOOK_USER = os.getenv("WEBHOOK_USER")
 WEBHOOK_PASS = os.getenv("WEBHOOK_PASS")
 
-# Auto-create database tables
+# Init DB
 Base.metadata.create_all(bind=engine)
 
-# Ensure directory for downloaded files
 SAVE_DIR = "scanned_mail"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -48,7 +51,7 @@ def get_db():
     finally:
         db.close()
 
-# Function to download files from given URL
+# File download helper
 async def download_file(url, filename):
     try:
         async with aiohttp.ClientSession() as session:
@@ -60,14 +63,40 @@ async def download_file(url, filename):
     except Exception as e:
         print(f"⚠️ Failed to download {url}: {e}")
 
-# Webhook endpoint to receive scanned mail from Hoxton Mix
+
+@app.post("/api/submit-kyc")
+async def submit_kyc_form(
+    contact_first_name: str = Form(...),
+    contact_last_name: str = Form(...),
+    contact_email: str = Form(...),
+    contact_phone: str = Form(...),
+    address_line1: str = Form(None),
+    address_line2: str = Form(None),
+    address_city: str = Form(None),
+    address_postcode: str = Form(None),
+    address_country: str = Form(None),
+    address_address: str = Form(None),
+    company_name: str = Form(None),
+    company_trading_name: str = Form(None),
+    company_number: str = Form(None),
+    company_type: str = Form(None),
+    company_label: str = Form(None),
+    company_value: str = Form(None),
+    owners: list[UploadFile] = File(None),  # Optional to process files now
+):
+    print("✅ KYC submission received")
+    print("Contact:", contact_first_name, contact_last_name, contact_email, contact_phone)
+    print("Address:", address_line1 or address_address)
+    print("Company:", company_name or company_label)
+    return {"status": "received"}
+
+# Webhook
 @app.post("/webhook")
 async def receive_webhook(
     request: Request,
     credentials: HTTPBasicCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    # BasicAuth check
     if credentials.username != WEBHOOK_USER or credentials.password != WEBHOOK_PASS:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -77,7 +106,6 @@ async def receive_webhook(
     external_id = data.get("external_id")
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-    # Download any available files
     for suffix, url in [
         ("pdf", data.get("url")),
         ("front", data.get("url_envelope_front")),
@@ -87,7 +115,6 @@ async def receive_webhook(
             filename = f"{external_id}_{suffix}_{timestamp}.pdf"
             await download_file(url, filename)
 
-    # Save mail metadata to the database
     mail = ScannedMail(
         external_id = external_id,
         sender_name = data.get("sender_name", "N/A"),
@@ -106,7 +133,7 @@ async def receive_webhook(
     print(f"✅ All files processed for: {external_id}")
     return {"status": "Webhook saved", "id": mail.id}
 
-# GET endpoint to retrieve paginated mail entries
+# Paginated mails
 @app.get("/mails")
 def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
     return db.query(ScannedMail)\
@@ -115,27 +142,47 @@ def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
              .limit(limit)\
              .all()
 
+# UK address lookup
 @app.get("/api/address-lookup")
 def address_lookup(postcode: str):
-    from urllib.parse import quote_plus
-
-    # Clean and encode the postcode
     postcode = postcode.strip().upper()
     encoded_postcode = quote_plus(postcode)
 
-    url = f"https://api.getaddress.io/find/{encoded_postcode}?api-key={GETADDRESS_API_KEY}"
-    print("Requesting GetAddress API:", url)  # DEBUG: log the URL
+    url = f"https://api.getaddress.io/find/{encoded_postcode}?api-key={GETADDRESS_API_KEY}&expand=true"
+    print("Requesting GetAddress API:", url)
 
     try:
         response = requests.get(url)
-        print("GetAddress API Status Code:", response.status_code)  # DEBUG: status
-        print("GetAddress API Response:", response.text)  # DEBUG: raw response
+        print("GetAddress API Status Code:", response.status_code)
+        print("GetAddress API Response:", response.text)
         response.raise_for_status()
         data = response.json()
         return JSONResponse(content={"addresses": data.get("addresses", [])})
     except requests.exceptions.RequestException as e:
         print("ERROR calling GetAddress API:", e)
         return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+# Companies House search
+@app.get("/api/company-search")
+def company_search(q: str = Query(..., min_length=2)):
+    if not COMPANIES_HOUSE_API_KEY:
+        raise HTTPException(status_code=500, detail="Missing COMPANIES_HOUSE_API_KEY in environment")
+
+    url = f"https://api.company-information.service.gov.uk/search/companies?q={q}"
+    print("Requesting Companies House API:", url)
+
+    try:
+        response = requests.get(url, auth=HTTPBasicAuth(COMPANIES_HOUSE_API_KEY, ""))
+        print("Companies House API Status Code:", response.status_code)
+        print("Companies House API Response:", response.text)
+        response.raise_for_status()
+        data = response.json()
+        return JSONResponse(content={"companies": data.get("items", [])})
+    except requests.exceptions.RequestException as e:
+        print("ERROR calling Companies House API:", e)
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
 
 
 
