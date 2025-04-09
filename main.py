@@ -23,6 +23,8 @@ app = FastAPI()
 # Load API keys from env
 GETADDRESS_API_KEY = os.getenv("GETADDRESS_API_KEY")
 COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY")
+HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
+HOXTON_API_URL = os.getenv("HOXTON_API_URL", "https://staging-api.hoxtonmix.com/api/v2/partner/subscriptions")
 
 # CORS
 app.add_middleware(
@@ -51,7 +53,6 @@ def get_db():
     finally:
         db.close()
 
-# File download helper
 async def download_file(url, filename):
     try:
         async with aiohttp.ClientSession() as session:
@@ -63,126 +64,59 @@ async def download_file(url, filename):
     except Exception as e:
         print(f"⚠️ Failed to download {url}: {e}")
 
-
 @app.post("/api/submit-kyc")
-async def submit_kyc_form(
-    contact_first_name: str = Form(...),
-    contact_last_name: str = Form(...),
-    contact_email: str = Form(...),
-    contact_phone: str = Form(...),
-    address_line1: str = Form(None),
-    address_line2: str = Form(None),
-    address_city: str = Form(None),
-    address_postcode: str = Form(None),
-    address_country: str = Form(None),
-    address_address: str = Form(None),
-    company_name: str = Form(None),
-    company_trading_name: str = Form(None),
-    company_number: str = Form(None),
-    company_type: str = Form(None),
-    company_label: str = Form(None),
-    company_value: str = Form(None),
-    owners: list[UploadFile] = File(None),  # Optional to process files now
-):
-    print("✅ KYC submission received")
-    print("Contact:", contact_first_name, contact_last_name, contact_email, contact_phone)
-    print("Address:", address_line1 or address_address)
-    print("Company:", company_name or company_label)
-    return {"status": "received"}
+async def submit_kyc_form(request: Request):
+    form = await request.form()
+    print("✅ KYC form received.")
 
-# Webhook
-@app.post("/webhook")
-async def receive_webhook(
-    request: Request,
-    credentials: HTTPBasicCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    if credentials.username != WEBHOOK_USER or credentials.password != WEBHOOK_PASS:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    # Extract business owner info
+    members = []
+    index = 0
+    while f"owners[{index}][first_name]" in form:
+        members.append({
+            "first_name": form.get(f"owners[{index}][first_name]", ""),
+            "last_name": form.get(f"owners[{index}][last_name]", ""),
+            "dob": form.get(f"owners[{index}][dob]", ""),
+            "phone": form.get(f"owners[{index}][phone]", ""),
+        })
+        index += 1
 
-    data = await request.json()
-    print("📬 Webhook received:", data)
+    payload = {
+        "external_id": form.get("contact[email]"),
+        "product_id": "virtual-office",
+        "customer": {
+            "first_name": form.get("contact[first_name]", ""),
+            "last_name": form.get("contact[last_name]", ""),
+            "email": form.get("contact[email]", ""),
+            "phone": form.get("contact[phone]", ""),
+        },
+        "shipping_address": {
+            "line1": form.get("address[line1]") or form.get("address[address]", ""),
+            "line2": form.get("address[line2]", ""),
+            "city": form.get("address[city]", ""),
+            "postcode": form.get("address[postcode]", ""),
+            "country": form.get("address[country]", "United Kingdom"),
+        },
+        "company": {
+            "name": form.get("company[name]") or form.get("company[label]", ""),
+            "trading_name": form.get("company[trading_name]", ""),
+            "number": form.get("company[number]") or form.get("company[value]", ""),
+            "type": form.get("company[type]", ""),
+        },
+        "members": members
+    }
 
-    external_id = data.get("external_id")
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-
-    for suffix, url in [
-        ("pdf", data.get("url")),
-        ("front", data.get("url_envelope_front")),
-        ("back", data.get("url_envelope_back")),
-    ]:
-        if url:
-            filename = f"{external_id}_{suffix}_{timestamp}.pdf"
-            await download_file(url, filename)
-
-    mail = ScannedMail(
-        external_id = external_id,
-        sender_name = data.get("sender_name", "N/A"),
-        document_title = data.get("document_title", "N/A"),
-        summary = data.get("summary", "N/A"),
-        url = data.get("url"),
-        url_envelope_front = data.get("url_envelope_front"),
-        url_envelope_back = data.get("url_envelope_back"),
-        company_name = data.get("company_name", "Unknown Company"),
-    )
-
-    db.add(mail)
-    db.commit()
-    db.refresh(mail)
-
-    print(f"✅ All files processed for: {external_id}")
-    return {"status": "Webhook saved", "id": mail.id}
-
-# Paginated mails
-@app.get("/mails")
-def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
-    return db.query(ScannedMail)\
-             .order_by(ScannedMail.received_at.desc())\
-             .offset(skip)\
-             .limit(limit)\
-             .all()
-
-# UK address lookup
-@app.get("/api/address-lookup")
-def address_lookup(postcode: str):
-    postcode = postcode.strip().upper()
-    encoded_postcode = quote_plus(postcode)
-
-    url = f"https://api.getaddress.io/find/{encoded_postcode}?api-key={GETADDRESS_API_KEY}&expand=true"
-    print("Requesting GetAddress API:", url)
+    print("📦 Sending payload to Hoxton Mix:", payload)
 
     try:
-        response = requests.get(url)
-        print("GetAddress API Status Code:", response.status_code)
-        print("GetAddress API Response:", response.text)
+        response = requests.post(
+            HOXTON_API_URL,
+            json=payload,
+            headers={"Authorization": f"Bearer {HOXTON_API_KEY}"}
+        )
         response.raise_for_status()
-        data = response.json()
-        return JSONResponse(content={"addresses": data.get("addresses", [])})
+        return JSONResponse(content={"status": "submitted", "response": response.json()})
     except requests.exceptions.RequestException as e:
-        print("ERROR calling GetAddress API:", e)
+        print("❌ Failed to send to Hoxton Mix:", e)
         return JSONResponse(status_code=400, content={"error": str(e)})
-
-
-# Companies House search
-@app.get("/api/company-search")
-def company_search(q: str = Query(..., min_length=2)):
-    if not COMPANIES_HOUSE_API_KEY:
-        raise HTTPException(status_code=500, detail="Missing COMPANIES_HOUSE_API_KEY in environment")
-
-    url = f"https://api.company-information.service.gov.uk/search/companies?q={q}"
-    print("Requesting Companies House API:", url)
-
-    try:
-        response = requests.get(url, auth=HTTPBasicAuth(COMPANIES_HOUSE_API_KEY, ""))
-        print("Companies House API Status Code:", response.status_code)
-        print("Companies House API Response:", response.text)
-        response.raise_for_status()
-        data = response.json()
-        return JSONResponse(content={"companies": data.get("items", [])})
-    except requests.exceptions.RequestException as e:
-        print("ERROR calling Companies House API:", e)
-        return JSONResponse(status_code=400, content={"error": str(e)})
-
-
-
 
