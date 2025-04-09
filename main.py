@@ -81,9 +81,14 @@ async def submit_kyc_form(request: Request):
         })
         index += 1
 
+    # Determine product_id from form
+    product_id = form.get("product_id")
+    if not product_id:
+        return JSONResponse(status_code=400, content={"error": "Missing product_id"})
+
     payload = {
-        "external_id": form.get("contact[email]"),
-        "product_id": "virtual-office",
+        "external_id": form.get("contact[email]", ""),
+        "product_id": int(product_id),  # Make sure it's a number
         "customer": {
             "first_name": form.get("contact[first_name]", ""),
             "last_name": form.get("contact[last_name]", ""),
@@ -119,4 +124,3 @@ async def submit_kyc_form(request: Request):
     except requests.exceptions.RequestException as e:
         print("❌ Failed to send to Hoxton Mix:", e)
         return JSONResponse(status_code=400, content={"error": str(e)})
-
