@@ -24,7 +24,7 @@ app = FastAPI()
 GETADDRESS_API_KEY = os.getenv("GETADDRESS_API_KEY")
 COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY")
 HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
-HOXTON_API_URL = os.getenv("HOXTON_API_URL", "https://staging-api.hoxtonmix.com/api/v2/partner/subscriptions")
+HOXTON_API_URL = os.getenv("HOXTON_API_URL")
 
 # CORS
 app.add_middleware(
