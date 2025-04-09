@@ -117,15 +117,25 @@ def get_mails(skip: int = 0, limit: int = 5, db: Session = Depends(get_db)):
 
 @app.get("/api/address-lookup")
 def address_lookup(postcode: str):
-    url = f"https://api.getaddress.io/find/{postcode}?api-key={GETADDRESS_API_KEY}"
-    try:
-        print("Resolved GETADDRESS_API_KEY:", GETADDRESS_API_KEY)
+    from urllib.parse import quote_plus
 
+    # Clean and encode the postcode
+    postcode = postcode.strip().upper()
+    encoded_postcode = quote_plus(postcode)
+
+    url = f"https://api.getaddress.io/find/{encoded_postcode}?api-key={GETADDRESS_API_KEY}"
+    print("Requesting GetAddress API:", url)  # DEBUG: log the URL
+
+    try:
         response = requests.get(url)
+        print("GetAddress API Status Code:", response.status_code)  # DEBUG: status
+        print("GetAddress API Response:", response.text)  # DEBUG: raw response
         response.raise_for_status()
         data = response.json()
         return JSONResponse(content={"addresses": data.get("addresses", [])})
     except requests.exceptions.RequestException as e:
+        print("ERROR calling GetAddress API:", e)
         return JSONResponse(status_code=400, content={"error": str(e)})
+
 
 
