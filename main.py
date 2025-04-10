@@ -93,6 +93,7 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
 
 # Subscription endpoint
 @app.post("/api/create-subscription")
+
 def create_subscription(data: SubscriptionRequest):
     headers = {
         "Authorization": f"Bearer {HOXTON_API_KEY}",
