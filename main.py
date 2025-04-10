@@ -8,6 +8,7 @@ import secrets
 import os
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
+import base64
 
 load_dotenv()
 
@@ -105,29 +106,33 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 # Subscription endpoint
-import base64
-
-import base64
 
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
     print("Sending to HOXTON_API_URL:", HOXTON_API_URL)
     print("Using HOXTON_API_KEY:", HOXTON_API_KEY[:6], "...")
 
-    # Basic Auth with API key as username, no password
-    basic_auth = base64.b64encode(f"{HOXTON_API_KEY}:".encode()).decode()
-
-    headers = {
-        "Authorization": f"Basic {basic_auth}",
-        "Content-Type": "application/json"
-    }
-
     try:
-        response = requests.post(HOXTON_API_URL, json=data.dict(), headers=headers)
+        # Send POST with Basic Auth (API key as username, blank password)
+        response = requests.post(
+            HOXTON_API_URL,
+            json=data.dict(),
+            auth=HTTPBasicAuth(HOXTON_API_KEY, ''),
+            headers={"Content-Type": "application/json"}
+        )
+
+        # Try parsing JSON response, fallback to plain text
+        try:
+            result = response.json()
+        except ValueError:
+            result = response.text
+
+        # Success
         if response.status_code in (200, 201):
-            return {"message": "Subscription created.", "data": response.json()}
+            return {"message": "Subscription created.", "data": result}
         else:
-            raise HTTPException(status_code=response.status_code, detail=response.text)
+            raise HTTPException(status_code=response.status_code, detail=result)
+
     except Exception as e:
         import traceback
         traceback.print_exc()
