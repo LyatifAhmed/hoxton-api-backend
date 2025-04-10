@@ -104,17 +104,18 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
 # Subscription endpoint
 import base64
 
+import base64
+
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
     print("Sending to HOXTON_API_URL:", HOXTON_API_URL)
     print("Using HOXTON_API_KEY:", HOXTON_API_KEY[:6], "...")
-    print("Payload:", data.dict())
 
-    # Encode the API key for Basic Auth (as username, no password)
-    encoded_credentials = base64.b64encode(f"{HOXTON_API_KEY}:".encode()).decode()
-    
+    # Basic Auth with API key as username, no password
+    basic_auth = base64.b64encode(f"{HOXTON_API_KEY}:".encode()).decode()
+
     headers = {
-        "Authorization": f"Basic {encoded_credentials}",
+        "Authorization": f"Basic {basic_auth}",
         "Content-Type": "application/json"
     }
 
