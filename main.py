@@ -139,24 +139,27 @@ def create_subscription(data: SubscriptionRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Subscription creation error: {str(e)}")
 
-import requests
-from requests.auth import HTTPBasicAuth
-import os
+@app.post("/api/update-subscription/{external_id}")
+def update_subscription(
+    external_id: str,
+    data: SubscriptionRequest,
+):
+    url = f"https://api.hoxtonmix.com/api/v2/subscription/{external_id}"
 
-HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
-HOXTON_UPDATE_URL = "https://api.hoxtonmix.com/api/v2/subscription"
+    try:
+        response = requests.post(
+            url,
+            auth=HTTPBasicAuth(HOXTON_API_KEY, ""),
+            json=data.dict(),
+            headers={"Content-Type": "application/json"}
+        )
 
-def update_subscription(external_id, payload):
-    url = f"{HOXTON_UPDATE_URL}/{external_id}"
-    
-    response = requests.post(
-        url,
-        auth=HTTPBasicAuth(HOXTON_API_KEY, ""),
-        json=payload
-    )
+        if response.status_code == 200:
+            return {"message": "Subscription updated successfully", "data": response.json()}
+        else:
+            print("Update failed:", response.text)
+            raise HTTPException(status_code=response.status_code, detail=response.text)
 
-    if response.status_code == 200:
-        return {"message": "Subscription updated successfully"}
-    else:
-        print(response.text)
-        response.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
