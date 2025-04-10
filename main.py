@@ -102,20 +102,25 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 # Subscription endpoint
+import base64
+
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
     print("Sending to HOXTON_API_URL:", HOXTON_API_URL)
     print("Using HOXTON_API_KEY:", HOXTON_API_KEY[:6], "...")
     print("Payload:", data.dict())
 
+    # Encode the API key for Basic Auth (as username, no password)
+    encoded_credentials = base64.b64encode(f"{HOXTON_API_KEY}:".encode()).decode()
+    
     headers = {
+        "Authorization": f"Basic {encoded_credentials}",
         "Content-Type": "application/json"
     }
-    auth = HTTPBasicAuth(HOXTON_API_KEY, "")  # Correct authentication method per API spec
 
     try:
-        response = requests.post(HOXTON_API_URL, json=data.dict(), headers=headers, auth=auth)
-        if response.status_code == 200:
+        response = requests.post(HOXTON_API_URL, json=data.dict(), headers=headers)
+        if response.status_code in (200, 201):
             return {"message": "Subscription created.", "data": response.json()}
         else:
             raise HTTPException(status_code=response.status_code, detail=response.text)
