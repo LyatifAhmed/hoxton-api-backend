@@ -61,12 +61,13 @@ class Member(BaseModel):
 
 class SubscriptionRequest(BaseModel):
     external_id: str
-    product_id: int
+    product_id: Optional[int] = None  # 👈 make it optional
     customer: Customer
     shipping_address: ShippingAddress
     subscription: Optional[SubscriptionSection]
     company: Company
     members: List[Member]
+
 
 # Auth check
 def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
