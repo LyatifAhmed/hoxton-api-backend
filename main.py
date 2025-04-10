@@ -32,28 +32,31 @@ class Customer(BaseModel):
 
 class ShippingAddress(BaseModel):
     shipping_address_line_1: str
-    shipping_address_line_2: Optional[str]
-    shipping_address_line_3: Optional[str]
+    shipping_address_line_2: Optional[str] = None
+    shipping_address_line_3: Optional[str] = None
     shipping_address_city: str
     shipping_address_postcode: str
-    shipping_address_state: Optional[str]
+    shipping_address_state: Optional[str] = None
     shipping_address_country: str
+
 
 class Company(BaseModel):
     name: str
-    trading_name: Optional[str]
-    limited_company_number: Optional[str]
-    abn_number: Optional[str]
-    acn_number: Optional[str]
+    trading_name: Optional[str] = None
+    limited_company_number: Optional[str] = None
+    abn_number: Optional[str] = None
+    acn_number: Optional[str] = None
     organisation_type: int
     telephone_number: str
 
+
 class Member(BaseModel):
     first_name: str
-    middle_name: Optional[str]
+    middle_name: Optional[str] = None
     last_name: str
     phone_number: str
     date_of_birth: str
+
 
 class SubscriptionRequest(BaseModel):
     external_id: str
