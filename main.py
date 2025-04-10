@@ -140,11 +140,17 @@ def create_subscription(data: SubscriptionRequest):
         raise HTTPException(status_code=500, detail=f"Subscription creation error: {str(e)}")
 
 @app.post("/api/update-subscription/{external_id}")
-def update_subscription(
+def update_subscription_route(
     external_id: str,
-    data: SubscriptionRequest,
+    data: SubscriptionRequest
 ):
     url = f"https://api.hoxtonmix.com/api/v2/subscription/{external_id}"
+
+    print("=== Incoming update request ===")
+    print("External ID:", external_id)
+    print("Payload:", data.dict())
+    print("Calling:", url)
+    print("Using Hoxton API key:", HOXTON_API_KEY[:6], "...")
 
     try:
         response = requests.post(
@@ -154,12 +160,26 @@ def update_subscription(
             headers={"Content-Type": "application/json"}
         )
 
+        print("Status Code:", response.status_code)
+        print("Response Text:", response.text)
+
         if response.status_code == 200:
-            return {"message": "Subscription updated successfully", "data": response.json()}
+            try:
+                return {
+                    "message": "Subscription updated successfully",
+                    "data": response.json()
+                }
+            except ValueError:
+                return {
+                    "message": "Updated but response not JSON",
+                    "data": response.text
+                }
         else:
-            print("Update failed:", response.text)
-            raise HTTPException(status_code=response.status_code, detail=response.text)
-
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=response.text
+            )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
-
