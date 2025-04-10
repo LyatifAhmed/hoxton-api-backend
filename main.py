@@ -7,6 +7,7 @@ import sqlite3
 import secrets
 import os
 from dotenv import load_dotenv
+from requests.auth import HTTPBasicAuth
 
 load_dotenv()
 
@@ -108,12 +109,13 @@ def create_subscription(data: SubscriptionRequest):
     print("Payload:", data.dict())
 
     headers = {
-        "Authorization": f"Bearer {HOXTON_API_KEY}",
         "Content-Type": "application/json"
     }
+    auth = HTTPBasicAuth(HOXTON_API_KEY, "")  # Correct authentication method per API spec
+
     try:
-        response = requests.post(HOXTON_API_URL, json=data.dict(), headers=headers)
-        if response.status_code == 201:
+        response = requests.post(HOXTON_API_URL, json=data.dict(), headers=headers, auth=auth)
+        if response.status_code == 200:
             return {"message": "Subscription created.", "data": response.json()}
         else:
             raise HTTPException(status_code=response.status_code, detail=response.text)
