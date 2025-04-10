@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Path
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from typing import List, Optional
@@ -137,3 +137,33 @@ def create_subscription(data: SubscriptionRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Subscription creation error: {str(e)}")
+
+@app.post("/api/update-subscription/{external_id}")
+def update_subscription(
+    external_id: str = Path(..., description="Customer's external ID"),
+    data: SubscriptionRequest = None
+):
+    url = f"{HOXTON_API_URL}/{external_id}"  # example: https://api.hoxtonmix.com/api/v2/subscription/{external_id}
+    headers = {
+        "Authorization": f"Bearer {HOXTON_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # 🚫 Ensure product_id is NOT updated
+    payload = data.dict()
+    payload.pop("product_id", None)
+
+    print("📤 Updating subscription:", external_id)
+    print("🔒 URL:", url)
+    print("📦 Payload:", payload)
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            return {"message": "Subscription updated successfully", "data": response.json()}
+        else:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
