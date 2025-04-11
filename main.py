@@ -11,12 +11,13 @@ from requests.auth import HTTPBasicAuth
 import base64
 from hoxton.create_token import router as token_router
 
-app.include_router(token_router)
+
 
 
 load_dotenv()
 
 app = FastAPI()
+app.include_router(token_router)
 security = HTTPBasic()
 
 # Config
