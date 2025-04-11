@@ -1,9 +1,53 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
 import sqlite3
-
+from pydantic import BaseModel
+from uuid import uuid4
 router = APIRouter()
 
+class TokenRequest(BaseModel):
+    email: str
+    product_id: int
+    plan_name: str 
+
+@router.post("/api/create-token")
+def create_token(data: TokenRequest):
+    token = str(uuid4())
+    expires_at = datetime.utcnow() + timedelta(days=3)
+
+    conn = sqlite3.connect("scanned_mail.db")
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS kyc_tokens (
+            token TEXT PRIMARY KEY,
+            date_created TEXT,
+            email TEXT,
+            product_id INTEGER,
+            plan_name TEXT,
+            expires_at TEXT,
+            kyc_submitted INTEGER DEFAULT 0
+        )
+    """)
+    c.execute("""
+        INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
+        VALUES (?, ?, ?, ?, ?, ?, 0)
+    """, (
+        token,
+        datetime.utcnow().isoformat(),
+        data.email,
+        data.product_id,
+        data.plan_name,
+        expires_at.isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+    return {
+        "token": token,
+        "link": f"https://betaoffice.uk/kyc?token={token}",
+        "expires_at": expires_at.isoformat()
+    }
+    
 @router.get("/api/recover-token")
 def recover_token(token: str):
     conn = sqlite3.connect("scanned_mail.db")
