@@ -11,10 +11,15 @@ from requests.auth import HTTPBasicAuth
 import base64
 from fastapi.middleware.cors import CORSMiddleware
 from hoxton.create_token import router as token_router
-
-
+from fastapi.responses import JSONResponse
+import stripe
+from uuid import uuid4
+from datetime import datetime, timedelta
 
 load_dotenv()
+
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 app = FastAPI()
 
@@ -25,8 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 app.include_router(token_router)
 security = HTTPBasic()
@@ -56,7 +59,6 @@ class ShippingAddress(BaseModel):
     shipping_address_state: Optional[str] = None
     shipping_address_country: str
 
-
 class Company(BaseModel):
     name: str
     trading_name: Optional[str] = None
@@ -66,7 +68,6 @@ class Company(BaseModel):
     organisation_type: int
     telephone_number: str
 
-
 class Member(BaseModel):
     first_name: str
     middle_name: Optional[str] = None
@@ -74,16 +75,14 @@ class Member(BaseModel):
     phone_number: str
     date_of_birth: str
 
-
 class SubscriptionRequest(BaseModel):
     external_id: str
-    product_id: Optional[int] = None  # 👈 make it optional
+    product_id: Optional[int] = None
     customer: Customer
     shipping_address: ShippingAddress
     subscription: Optional[SubscriptionSection]
     company: Company
     members: List[Member]
-
 
 # Auth check
 def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
@@ -122,15 +121,73 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-# Subscription endpoint
+# Stripe webhook for successful payments
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
 
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Webhook signature verification failed")
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        email = session.get("customer_email")
+        price_id = session.get("metadata", {}).get("price_id")
+
+        plan_map = {
+            "price_1RBKvBACVQjWBIYus7IRSyEt": ("Monthly Plan", 2736),
+            "price_1RBKvlACVQjWBIYuVs4Of01v": ("Annual Plan", 2737)
+        }
+
+        if price_id in plan_map:
+            plan_name, product_id = plan_map[price_id]
+
+            token = str(uuid4())
+            expires_at = datetime.utcnow() + timedelta(days=3)
+
+            conn = sqlite3.connect("scanned_mail.db")
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS kyc_tokens (
+                    token TEXT PRIMARY KEY,
+                    date_created TEXT,
+                    email TEXT,
+                    product_id INTEGER,
+                    plan_name TEXT,
+                    expires_at TEXT,
+                    kyc_submitted INTEGER DEFAULT 0
+                )
+            """)
+            c.execute("""
+                INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            """, (
+                token,
+                datetime.utcnow().isoformat(),
+                email,
+                product_id,
+                plan_name,
+                expires_at.isoformat()
+            ))
+            conn.commit()
+            conn.close()
+
+            print(f"KYC token created: {token} for {email}")
+
+    return {"status": "ok"}
+
+# Subscription endpoint
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
     print("Sending to HOXTON_API_URL:", HOXTON_API_URL)
     print("Using HOXTON_API_KEY:", HOXTON_API_KEY[:6], "...")
 
     try:
-        # Send POST with Basic Auth (API key as username, blank password)
         response = requests.post(
             HOXTON_API_URL,
             json=data.dict(),
@@ -138,13 +195,11 @@ def create_subscription(data: SubscriptionRequest):
             headers={"Content-Type": "application/json"}
         )
 
-        # Try parsing JSON response, fallback to plain text
         try:
             result = response.json()
         except ValueError:
             result = response.text
 
-        # Success
         if response.status_code in (200, 201):
             return {"message": "Subscription created.", "data": result}
         else:
