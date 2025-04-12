@@ -4,6 +4,9 @@ import sqlite3
 from pydantic import BaseModel
 from uuid import uuid4
 router = APIRouter()
+import os
+print("📁 Writing to DB at:", os.path.abspath("scanned_mail.db"))
+
 
 class TokenRequest(BaseModel):
     email: str
