@@ -15,6 +15,10 @@ from fastapi.responses import JSONResponse
 import stripe
 from uuid import uuid4
 from datetime import datetime, timedelta
+import aiosmtplib
+from email.message import EmailMessage
+from hoxton.mail import send_kyc_email
+
 
 load_dotenv()
 
@@ -25,7 +29,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://betaoffice.uk"],  # Or ["*"] for testing
+    allow_origins=["https://betaoffice.uk"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,7 +44,13 @@ HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
 BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER")
 BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
 
-# Pydantic Models (Aligned with Hoxton API Spec)
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+
+
+# Pydantic Models
 class SubscriptionSection(BaseModel):
     start_date: Optional[str]
 
@@ -177,7 +187,8 @@ async def stripe_webhook(request: Request):
             conn.commit()
             conn.close()
 
-            print(f"KYC token created: {token} for {email}")
+            await send_kyc_email(email, token)
+            print(f"KYC token created and email sent to {email}")
 
     return {"status": "ok"}
 
