@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from uuid import uuid4
 router = APIRouter()
 import os
-print("📁 Writing to DB at:", os.path.abspath("scanned_mail.db"))
 
 
 class TokenRequest(BaseModel):
@@ -14,7 +13,9 @@ class TokenRequest(BaseModel):
     plan_name: str 
 
 @router.post("/api/create-token")
+
 def create_token(data: TokenRequest):
+    print("📁 Writing to DB at:", os.path.abspath("scanned_mail.db"))
     token = str(uuid4())
     expires_at = datetime.utcnow() + timedelta(days=3)
 
