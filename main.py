@@ -20,11 +20,12 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for testing, can restrict to your domain later
+    allow_origins=["https://betaoffice.uk"],  # Or ["*"] for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 app.include_router(token_router)
