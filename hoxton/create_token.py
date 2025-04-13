@@ -43,7 +43,11 @@ def create_token(data: SessionIdRequest):
         token = str(uuid4())
         expires_at = datetime.utcnow() + timedelta(days=3)
 
-        conn = sqlite3.connect("scanned_mail.db")
+        # ✅ FIXED: Use absolute path for DB
+        db_path = os.path.join(os.path.dirname(__file__), "scanned_mail.db")
+        print("📁 Using DB at:", db_path)  # Optional debug
+
+        conn = sqlite3.connect(db_path)
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS kyc_tokens (
