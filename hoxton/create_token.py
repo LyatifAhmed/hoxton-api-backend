@@ -3,91 +3,87 @@ from datetime import datetime, timedelta
 import sqlite3
 from pydantic import BaseModel
 from uuid import uuid4
+import stripe
+import os
+
 router = APIRouter()
 
+# Stripe setup
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-
-class TokenRequest(BaseModel):
-    email: str
-    product_id: int
-    plan_name: str 
+class SessionIdRequest(BaseModel):
+    session_id: str
 
 @router.post("/api/create-token")
-
-def create_token(data: TokenRequest):
-    import os
-    print("📁 Writing to DB at:", os.path.abspath("scanned_mail.db"))  # ✅ Debug path
-    print("🔧 Creating token...")
-    token = str(uuid4())
-    expires_at = datetime.utcnow() + timedelta(days=3)
-
-    conn = sqlite3.connect("scanned_mail.db")
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS kyc_tokens (
-            token TEXT PRIMARY KEY,
-            date_created TEXT,
-            email TEXT,
-            product_id INTEGER,
-            plan_name TEXT,
-            expires_at TEXT,
-            kyc_submitted INTEGER DEFAULT 0
+def create_token(data: SessionIdRequest):
+    try:
+        # 🔐 Fetch session from Stripe
+        session = stripe.checkout.Session.retrieve(
+            data.session_id,
+            expand=["line_items", "customer_details"]
         )
-    """)
-    # ✅ DELETE old unsubmitted token for this email
-    c.execute("""
-        DELETE FROM kyc_tokens WHERE email = ? AND kyc_submitted = 0
-    """, (data.email,))
 
-    c.execute("""
-        INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
-        VALUES (?, ?, ?, ?, ?, ?, 0)
-    """, (
-        token,
-        datetime.utcnow().isoformat(),
-        data.email,
-        data.product_id,
-        data.plan_name,
-        expires_at.isoformat()
-    ))
-    conn.commit()
-    conn.close()
+        customer_email = session.get("customer_details", {}).get("email")
+        price_id = session.get("line_items", {}).get("data", [])[0]["price"]["id"]
 
-    return {
-    "token": token,
-    "link": f"https://betaoffice.uk/kyc?token={token}",
-    "expires_at": expires_at.isoformat(),
-    "price_id": data.product_id  # add this if your frontend needs it
-}
+        if not customer_email or not price_id:
+            raise HTTPException(status_code=400, detail="Missing email or price_id from session")
 
-    
-@router.get("/api/recover-token")
-def recover_token(token: str):
-    conn = sqlite3.connect("scanned_mail.db")
-    c = conn.cursor()
+        # 🧠 Map to Hoxton plan
+        if price_id == "price_1RBKvBACVQjWBIYus7IRSyEt":
+            product_id = 2736
+            plan_name = "Monthly"
+        elif price_id == "price_1RBKvlACVQjWBIYuVs4Of01v":
+            product_id = 2737
+            plan_name = "Annual"
+        else:
+            raise HTTPException(status_code=400, detail="Unknown Stripe price_id")
 
-    c.execute("""
-        SELECT email, product_id, plan_name, expires_at, kyc_submitted 
-        FROM kyc_tokens 
-        WHERE token = ?
-    """, (token,))
-    
-    row = c.fetchone()
-    conn.close()
+        # 🎟️ Generate token
+        token = str(uuid4())
+        expires_at = datetime.utcnow() + timedelta(days=3)
 
-    if not row:
-        raise HTTPException(status_code=404, detail="No token found")
+        conn = sqlite3.connect("scanned_mail.db")
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS kyc_tokens (
+                token TEXT PRIMARY KEY,
+                date_created TEXT,
+                email TEXT,
+                product_id INTEGER,
+                plan_name TEXT,
+                expires_at TEXT,
+                kyc_submitted INTEGER DEFAULT 0
+            )
+        """)
 
-    email, product_id, plan_name, expires_at, kyc_submitted = row
+        # 💥 Delete old unfinished tokens
+        c.execute("""
+            DELETE FROM kyc_tokens WHERE email = ? AND kyc_submitted = 0
+        """, (customer_email,))
 
-    if kyc_submitted:
-        raise HTTPException(status_code=409, detail="You’ve already completed your KYC.")
+        # ✅ Insert new token
+        c.execute("""
+            INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
+        """, (
+            token,
+            datetime.utcnow().isoformat(),
+            customer_email,
+            product_id,
+            plan_name,
+            expires_at.isoformat()
+        ))
+        conn.commit()
+        conn.close()
 
-    if datetime.fromisoformat(expires_at) < datetime.utcnow():
-        raise HTTPException(status_code=410, detail="This KYC link has expired. You can request a new one.")
+        return {
+            "token": token,
+            "price_id": price_id,
+            "link": f"https://betaoffice.uk/kyc?token={token}",
+            "expires_at": expires_at.isoformat()
+        }
 
-    return {
-        "email": email,
-        "product_id": product_id,
-        "plan_name": plan_name
-    }
+    except Exception as e:
+        print("❌ Error in /api/create-token:", e)
+        raise HTTPException(status_code=500, detail="Failed to create token")
