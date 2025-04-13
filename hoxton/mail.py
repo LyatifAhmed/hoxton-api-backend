@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SMTP_SERVER = os.getenv("SMTP_HOST")          # smtp.zoho.eu
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))  # 587 by default
+SMTP_PORT = int(os.getenv("SMTP_PORT"))  # 
 SMTP_USERNAME = os.getenv("SMTP_USER")        # no-reply@betaoffice.uk
 SMTP_PASSWORD = os.getenv("SMTP_PASS")        # Zoho App Password
 
@@ -38,7 +38,9 @@ BetaOffice Team
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(msg)
         print(f"✅ KYC email sent to {recipient_email}")
