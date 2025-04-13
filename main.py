@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Path
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Path, UploadFile, Form
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from typing import List, Optional
@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
 import base64
 from fastapi.middleware.cors import CORSMiddleware
-from hoxton.create_token import router as token_router
 from fastapi.responses import JSONResponse
 import stripe
 from uuid import uuid4
@@ -18,8 +17,11 @@ from datetime import datetime, timedelta
 import aiosmtplib
 from email.message import EmailMessage
 from hoxton.mail import send_kyc_email
-from scanned_mail.database import init_db
+from scanned_mail.database import init_db, SessionLocal
+from scanned_mail.models import KycToken, Subscription, CompanyMember
 from contextlib import asynccontextmanager
+from hoxton.create_token import router as token_router
+from hoxton.submit_kyc import router as submit_kyc_router
 
 
 load_dotenv()
@@ -31,9 +33,8 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 async def lifespan(app: FastAPI):
     print("🚀 Initializing DB at startup...")
     init_db()
-    yield  # <-- after this you can add cleanup code if needed
+    yield
 
-# ✅ Only define FastAPI once, with lifespan hook!
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -45,9 +46,10 @@ app.add_middleware(
 )
 
 app.include_router(token_router)
+app.include_router(submit_kyc_router)
+
 security = HTTPBasic()
 
-# Config
 HOXTON_API_URL = os.getenv("HOXTON_API_URL")
 HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
 BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER")
@@ -58,8 +60,6 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 
-
-# Pydantic Models
 class SubscriptionSection(BaseModel):
     start_date: Optional[str]
 
@@ -103,13 +103,11 @@ class SubscriptionRequest(BaseModel):
     company: Company
     members: List[Member]
 
-# Auth check
 def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
     if not (secrets.compare_digest(credentials.username, BASIC_AUTH_USER) and 
             secrets.compare_digest(credentials.password, BASIC_AUTH_PASS)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-# Webhook endpoint
 @app.post("/webhook")
 async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = Depends(verify_basic_auth)):
     payload = await request.json()
@@ -140,7 +138,6 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-# Stripe webhook for successful payments
 @app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -169,39 +166,25 @@ async def stripe_webhook(request: Request):
             token = str(uuid4())
             expires_at = datetime.utcnow() + timedelta(days=3)
 
-            conn = sqlite3.connect("scanned_mail.db")
-            c = conn.cursor()
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS kyc_tokens (
-                    token TEXT PRIMARY KEY,
-                    date_created TEXT,
-                    email TEXT,
-                    product_id INTEGER,
-                    plan_name TEXT,
-                    expires_at TEXT,
-                    kyc_submitted INTEGER DEFAULT 0
-                )
-            """)
-            c.execute("""
-                INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
-                VALUES (?, ?, ?, ?, ?, ?, 0)
-            """, (
-                token,
-                datetime.utcnow().isoformat(),
-                email,
-                product_id,
-                plan_name,
-                expires_at.isoformat()
+            db = SessionLocal()
+            db.query(KycToken).filter(KycToken.email == email, KycToken.kyc_submitted == 0).delete()
+            db.add(KycToken(
+                token=token,
+                date_created=datetime.utcnow(),
+                email=email,
+                product_id=product_id,
+                plan_name=plan_name,
+                expires_at=expires_at,
+                kyc_submitted=0
             ))
-            conn.commit()
-            conn.close()
+            db.commit()
+            db.close()
 
             await send_kyc_email(email, token)
             print(f"KYC token created and email sent to {email}")
 
     return {"status": "ok"}
 
-# Subscription endpoint
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
     print("Sending to HOXTON_API_URL:", HOXTON_API_URL)
@@ -221,6 +204,12 @@ def create_subscription(data: SubscriptionRequest):
             result = response.text
 
         if response.status_code in (200, 201):
+            db = SessionLocal()
+            db.query(KycToken).filter(KycToken.email == data.customer.email_address).update({
+                "kyc_submitted": 1
+            })
+            db.commit()
+            db.close()
             return {"message": "Subscription created.", "data": result}
         else:
             raise HTTPException(status_code=response.status_code, detail=result)
@@ -254,3 +243,4 @@ def update_subscription(external_id: str, data: SubscriptionRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
