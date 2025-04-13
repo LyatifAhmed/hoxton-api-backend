@@ -1,7 +1,8 @@
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from .database import Base
+from .base import Base
+
 
 
 class KycToken(Base):
