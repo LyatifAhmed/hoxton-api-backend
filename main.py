@@ -29,8 +29,11 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("🚀 Initializing DB at startup...")
     init_db()
-    yield  # You can add cleanup code after this if needed
+    yield  # <-- after this you can add cleanup code if needed
+
+# ✅ Only define FastAPI once, with lifespan hook!
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
