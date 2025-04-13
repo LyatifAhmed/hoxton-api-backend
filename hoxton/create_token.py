@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from uuid import uuid4
 import stripe
 import os
+from scanned_mail.database import SessionLocal
+from scanned_mail.models import KycToken
 
 router = APIRouter()
 
@@ -17,7 +19,6 @@ class SessionIdRequest(BaseModel):
 @router.post("/api/create-token")
 def create_token(data: SessionIdRequest):
     try:
-        # 🔐 Fetch session from Stripe
         session = stripe.checkout.Session.retrieve(
             data.session_id,
             expand=["line_items", "customer_details"]
@@ -29,7 +30,6 @@ def create_token(data: SessionIdRequest):
         if not customer_email or not price_id:
             raise HTTPException(status_code=400, detail="Missing email or price_id from session")
 
-        # 🧠 Map to Hoxton plan
         if price_id == "price_1RBKvBACVQjWBIYus7IRSyEt":
             product_id = 2736
             plan_name = "Monthly"
@@ -39,47 +39,25 @@ def create_token(data: SessionIdRequest):
         else:
             raise HTTPException(status_code=400, detail="Unknown Stripe price_id")
 
-        # 🎟️ Generate token
         token = str(uuid4())
         expires_at = datetime.utcnow() + timedelta(days=3)
 
-        # ✅ FIXED: Use absolute path for DB
-        db_path = os.path.join(os.path.dirname(__file__), "scanned_mail.db")
-        print("📁 Using DB at:", db_path)  # Optional debug
+        db = SessionLocal()
 
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS kyc_tokens (
-                token TEXT PRIMARY KEY,
-                date_created TEXT,
-                email TEXT,
-                product_id INTEGER,
-                plan_name TEXT,
-                expires_at TEXT,
-                kyc_submitted INTEGER DEFAULT 0
-            )
-        """)
+        # Remove old tokens (if not submitted)
+        db.query(KycToken).filter(KycToken.email == customer_email, KycToken.kyc_submitted == 0).delete()
 
-        # 💥 Delete old unfinished tokens
-        c.execute("""
-            DELETE FROM kyc_tokens WHERE email = ? AND kyc_submitted = 0
-        """, (customer_email,))
-
-        # ✅ Insert new token
-        c.execute("""
-            INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
-            VALUES (?, ?, ?, ?, ?, ?, 0)
-        """, (
-            token,
-            datetime.utcnow().isoformat(),
-            customer_email,
-            product_id,
-            plan_name,
-            expires_at.isoformat()
-        ))
-        conn.commit()
-        conn.close()
+        # Create new token
+        new_token = KycToken(
+            token=token,
+            email=customer_email,
+            product_id=product_id,
+            plan_name=plan_name,
+            expires_at=expires_at
+        )
+        db.add(new_token)
+        db.commit()
+        db.close()
 
         return {
             "token": token,
@@ -91,3 +69,22 @@ def create_token(data: SessionIdRequest):
     except Exception as e:
         print("❌ Error in /api/create-token:", e)
         raise HTTPException(status_code=500, detail="Failed to create token")
+    
+@router.get("/api/recover-token")
+def recover_token(token: str):
+    db = SessionLocal()
+    kyc = db.query(KycToken).filter(KycToken.token == token).first()
+    db.close()
+
+    if not kyc:
+        raise HTTPException(status_code=404, detail="Token not found")
+    if datetime.utcnow() > kyc.expires_at:
+        raise HTTPException(status_code=410, detail="Token expired")
+
+    return {
+        "email": kyc.email,
+        "product_id": kyc.product_id,
+        "plan_name": kyc.plan_name,
+        "expires_at": kyc.expires_at.isoformat(),
+        "kyc_submitted": kyc.kyc_submitted
+    }    
