@@ -34,6 +34,11 @@ def create_token(data: TokenRequest):
             kyc_submitted INTEGER DEFAULT 0
         )
     """)
+    # ✅ DELETE old unsubmitted token for this email
+    c.execute("""
+        DELETE FROM kyc_tokens WHERE email = ? AND kyc_submitted = 0
+    """, (data.email,))
+
     c.execute("""
         INSERT INTO kyc_tokens (token, date_created, email, product_id, plan_name, expires_at, kyc_submitted)
         VALUES (?, ?, ?, ?, ?, ?, 0)
@@ -49,10 +54,12 @@ def create_token(data: TokenRequest):
     conn.close()
 
     return {
-        "token": token,
-        "link": f"https://betaoffice.uk/kyc?token={token}",
-        "expires_at": expires_at.isoformat()
-    }
+    "token": token,
+    "link": f"https://betaoffice.uk/kyc?token={token}",
+    "expires_at": expires_at.isoformat(),
+    "price_id": data.product_id  # add this if your frontend needs it
+}
+
     
 @router.get("/api/recover-token")
 def recover_token(token: str):
