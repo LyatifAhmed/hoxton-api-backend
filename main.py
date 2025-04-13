@@ -18,6 +18,8 @@ from datetime import datetime, timedelta
 import aiosmtplib
 from email.message import EmailMessage
 from hoxton.mail import send_kyc_email
+from scanned_mail.database import init_db
+from contextlib import asynccontextmanager
 
 
 load_dotenv()
@@ -25,7 +27,11 @@ load_dotenv()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield  # You can add cleanup code after this if needed
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
