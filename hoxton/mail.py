@@ -38,9 +38,6 @@ BetaOffice Team
 
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(msg)
         print(f"✅ KYC email sent to {recipient_email}")
