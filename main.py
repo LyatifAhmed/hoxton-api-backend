@@ -152,12 +152,23 @@ async def stripe_webhook(request: Request):
     print("Event type:", event['type'])
 
     if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        email = session.get("customer_email")
-        metadata = session.get("metadata", {})
+        session_id = event["data"]["object"]["id"]
+
+        # 🔁 Retrieve full session with expanded customer
+        full_session = stripe.checkout.Session.retrieve(
+            session_id,
+            expand=["customer", "customer_details"]
+        )
+
+        # ✅ Try to get email from expanded session
+        email = (
+            full_session.get("customer_details", {}).get("email") or
+            full_session.get("customer", {}).get("email")
+        )
+        metadata = full_session.get("metadata", {})
         price_id = metadata.get("price_id")
 
-        print("Session Email:", email)
+        print("✅ Session Email:", email)
         print("Session Metadata:", metadata)
         print("Price ID:", price_id)
 
@@ -166,7 +177,7 @@ async def stripe_webhook(request: Request):
             "price_1RBKvlACVQjWBIYuVs4Of01v": ("Annual Plan", 2737)
         }
 
-        if price_id in plan_map:
+        if price_id in plan_map and email:
             plan_name, product_id = plan_map[price_id]
 
             token = str(uuid4())
@@ -186,15 +197,16 @@ async def stripe_webhook(request: Request):
             db.commit()
             db.close()
 
-            print(f"Attempting to send email to {email} with token: {token}")
-            send_kyc_email(email, token)
+            print(f"📩 Attempting to send email to {email} with token: {token}")
+            await send_kyc_email(email, token)
             print(f"✅ KYC email sent to {email}")
         else:
-            print(f"⚠️ Unrecognized price_id: {price_id}")
+            print(f"⚠️ Missing or unrecognized price_id or email. price_id={price_id}, email={email}")
     else:
         print("⚠️ Webhook event was not checkout.session.completed")
 
     return {"status": "ok"}
+
 
 
 @app.post("/api/create-subscription")
