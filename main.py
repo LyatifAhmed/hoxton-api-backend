@@ -198,7 +198,7 @@ async def stripe_webhook(request: Request):
             db.close()
 
             print(f"📩 Attempting to send email to {email} with token: {token}")
-            await send_kyc_email(email, token)
+            send_kyc_email(email, token)
             print(f"✅ KYC email sent to {email}")
         else:
             print(f"⚠️ Missing or unrecognized price_id or email. price_id={price_id}, email={email}")
