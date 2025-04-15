@@ -3,6 +3,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 from dotenv import load_dotenv
+import traceback
 
 load_dotenv()
 
@@ -46,3 +47,4 @@ BetaOffice Team
         print(f"✅ KYC email sent to {recipient_email}")
     except Exception as e:
         print(f"❌ Failed to send email to {recipient_email}: {e}")
+        traceback.print_exc()
