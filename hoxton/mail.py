@@ -4,13 +4,21 @@ from email.mime.multipart import MIMEMultipart
 import os
 from dotenv import load_dotenv
 import traceback
+from datetime import datetime
 
 load_dotenv()
 
 SMTP_SERVER = os.getenv("SMTP_HOST")          # smtp.zoho.eu
-SMTP_PORT = int(os.getenv("SMTP_PORT"))  # 
+SMTP_PORT = int(os.getenv("SMTP_PORT"))       # 587
 SMTP_USERNAME = os.getenv("SMTP_USER")        # no-reply@betaoffice.uk
 SMTP_PASSWORD = os.getenv("SMTP_PASS")        # Zoho App Password
+
+def log_email_error(error: Exception, recipient: str):
+    with open("email_error.log", "a") as f:
+        f.write(f"\n---\nTime: {datetime.utcnow().isoformat()}\n")
+        f.write(f"To: {recipient}\n")
+        f.write("Error:\n")
+        f.write("".join(traceback.format_exception(type(error), error, error.__traceback__)))
 
 def send_kyc_email(recipient_email: str, kyc_token: str):
     link = f"https://betaoffice.uk/kyc?token={kyc_token}"
@@ -47,4 +55,5 @@ BetaOffice Team
         print(f"✅ KYC email sent to {recipient_email}")
     except Exception as e:
         print(f"❌ Failed to send email to {recipient_email}: {e}")
-        traceback.print_exc()
+        log_email_error(e, recipient_email)
+
