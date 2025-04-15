@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .base import Base
@@ -15,7 +15,7 @@ class KycToken(Base):
     plan_name = Column(String)
     expires_at = Column(DateTime)
     kyc_submitted = Column(Integer, default=0)
-
+    session_id = Column(String, index=True, nullable=True)  # ✅ Add this line
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
