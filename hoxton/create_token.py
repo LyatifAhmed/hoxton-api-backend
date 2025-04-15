@@ -53,7 +53,8 @@ def create_token(data: SessionIdRequest):
             email=customer_email,
             product_id=product_id,
             plan_name=plan_name,
-            expires_at=expires_at
+            expires_at=expires_at,
+            session_id=data.session_id  # ✅ <-- Add this line
         )
         db.add(new_token)
         db.commit()

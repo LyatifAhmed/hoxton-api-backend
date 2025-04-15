@@ -167,10 +167,12 @@ async def stripe_webhook(request: Request):
         )
         metadata = full_session.get("metadata", {})
         price_id = metadata.get("price_id")
+        session_id = full_session["id"]
 
         print("✅ Session Email:", email)
         print("Session Metadata:", metadata)
         print("Price ID:", price_id)
+        print("Session ID:", session_id)
 
         plan_map = {
             "price_1RBKvBACVQjWBIYus7IRSyEt": ("Monthly Plan", 2736),
@@ -192,7 +194,8 @@ async def stripe_webhook(request: Request):
                 product_id=product_id,
                 plan_name=plan_name,
                 expires_at=expires_at,
-                kyc_submitted=0
+                kyc_submitted=0,
+                session_id=session_id
             ))
             db.commit()
             print(f"✅ Token saved to DB: {token}")
