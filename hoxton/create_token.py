@@ -97,4 +97,15 @@ def recover_token(token: str):
             "kyc_submitted": kyc.kyc_submitted
         }
 
+# In your FastAPI backend
+@router.get("/api/get-token-from-session")
+def get_token_from_session(session_id: str):
+    db = SessionLocal()
+    token_entry = db.query(KycToken).filter(KycToken.session_id == session_id).first()
+    db.close()
+
+    if not token_entry:
+        raise HTTPException(status_code=404, detail="No token for session")
+
+    return {"token": token_entry.token}
     

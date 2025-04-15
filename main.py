@@ -272,10 +272,5 @@ def update_subscription(external_id: str, data: SubscriptionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
-@app.post("/api/test-email")
-async def test_email_endpoint(email: str = Body(...), token: str = Body(default="test-token")):
-    try:
-        await send_kyc_email(email, token)
-        return {"message": f"✅ Test email sent to {email}"}
-    except Exception as e:
-        return {"error": f"❌ Failed to send test email: {str(e)}"}
+    
+
