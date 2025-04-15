@@ -180,8 +180,10 @@ async def stripe_webhook(request: Request):
             db.commit()
             db.close()
 
-            await send_kyc_email(email, token)
-            print(f"KYC token created and email sent to {email}")
+            print(f"Attempting to send email to {email} with token: {token}")
+            print("SMTP setup:", SMTP_HOST, SMTP_PORT, SMTP_USER)
+            send_kyc_email(email, token)
+            print(f"✅ KYC email sent to {email}")
 
     return {"status": "ok"}
 
