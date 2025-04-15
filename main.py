@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Path, UploadFile, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Path, UploadFile, Form, Body
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from typing import List, Optional
@@ -22,7 +22,7 @@ from scanned_mail.models import KycToken, Subscription, CompanyMember
 from contextlib import asynccontextmanager
 from hoxton.create_token import router as token_router
 from hoxton.submit_kyc import router as submit_kyc_router
-
+from hoxton.mail import send_kyc_email
 
 load_dotenv()
 
@@ -246,3 +246,10 @@ def update_subscription(external_id: str, data: SubscriptionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
+@app.post("/api/test-email")
+async def test_email_endpoint(email: str = Body(...), token: str = Body(default="test-token")):
+    try:
+        await send_kyc_email(email, token)
+        return {"message": f"✅ Test email sent to {email}"}
+    except Exception as e:
+        return {"error": f"❌ Failed to send test email: {str(e)}"}
