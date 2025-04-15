@@ -195,6 +195,10 @@ async def stripe_webhook(request: Request):
                 kyc_submitted=0
             ))
             db.commit()
+            print(f"✅ Token saved to DB: {token}")
+            tokens = db.query(KycToken).all()
+            print("📦 Current tokens in DB:", [t.token for t in tokens])
+
             db.close()
 
             print(f"📩 Attempting to send email to {email} with token: {token}")

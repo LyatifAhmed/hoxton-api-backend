@@ -72,19 +72,29 @@ def create_token(data: SessionIdRequest):
     
 @router.get("/api/recover-token")
 def recover_token(token: str):
-    db = SessionLocal()
-    kyc = db.query(KycToken).filter(KycToken.token == token).first()
-    db.close()
+    print(f"🔍 Attempting to recover token: {token}")
 
-    if not kyc:
-        raise HTTPException(status_code=404, detail="Token not found")
-    if datetime.utcnow() > kyc.expires_at:
-        raise HTTPException(status_code=410, detail="Token expired")
+    with SessionLocal() as db:
+        kyc = db.query(KycToken).filter(KycToken.token == token).first()
 
-    return {
-        "email": kyc.email,
-        "product_id": kyc.product_id,
-        "plan_name": kyc.plan_name,
-        "expires_at": kyc.expires_at.isoformat(),
-        "kyc_submitted": kyc.kyc_submitted
-    }    
+        all_tokens = db.query(KycToken).all()
+        print("📦 Tokens in DB:", [t.token for t in all_tokens])
+
+        if not kyc:
+            print("❌ Token not found in DB")
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        if datetime.utcnow() > kyc.expires_at:
+            print("⚠️ Token found but expired")
+            raise HTTPException(status_code=410, detail="Token expired")
+
+        print("✅ Token is valid and active")
+        return {
+            "email": kyc.email,
+            "product_id": kyc.product_id,
+            "plan_name": kyc.plan_name,
+            "expires_at": kyc.expires_at.isoformat(),
+            "kyc_submitted": kyc.kyc_submitted
+        }
+
+    
