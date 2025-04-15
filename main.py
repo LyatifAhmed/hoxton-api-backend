@@ -144,16 +144,22 @@ async def stripe_webhook(request: Request):
     sig_header = request.headers.get("stripe-signature")
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Webhook signature verification failed")
+
+    print("✅ Stripe webhook event received")
+    print("Event type:", event['type'])
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         email = session.get("customer_email")
-        price_id = session.get("metadata", {}).get("price_id")
+        metadata = session.get("metadata", {})
+        price_id = metadata.get("price_id")
+
+        print("Session Email:", email)
+        print("Session Metadata:", metadata)
+        print("Price ID:", price_id)
 
         plan_map = {
             "price_1RBKvBACVQjWBIYus7IRSyEt": ("Monthly Plan", 2736),
@@ -181,11 +187,15 @@ async def stripe_webhook(request: Request):
             db.close()
 
             print(f"Attempting to send email to {email} with token: {token}")
-            print("SMTP setup:", SMTP_HOST, SMTP_PORT, SMTP_USER)
-            send_kyc_email(email, token)
+            await send_kyc_email(email, token)
             print(f"✅ KYC email sent to {email}")
+        else:
+            print(f"⚠️ Unrecognized price_id: {price_id}")
+    else:
+        print("⚠️ Webhook event was not checkout.session.completed")
 
     return {"status": "ok"}
+
 
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
