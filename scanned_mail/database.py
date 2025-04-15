@@ -3,16 +3,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from .base import Base
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "scanned_mail.db")
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+# ✅ Use DATABASE_URL from environment (Render will provide this)
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# ✅ Create the engine without SQLite-specific args
+engine = create_engine(DATABASE_URL)
+
+# ✅ Set up the session
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
+# ✅ Create tables on startup
 def init_db():
     Base.metadata.create_all(bind=engine)
-
 
 
 
