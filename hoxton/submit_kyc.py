@@ -79,7 +79,7 @@ async def submit_kyc(
                     middle_name=kwargs.get(f"members[{i}][middle_name]"),
                     last_name=kwargs.get(f"members[{i}][last_name]"),
                     phone_number=kwargs.get(f"members[{i}][phone_number]"),
-                    date_of_birth=datetime.fromisoformat(kwargs.get(f"members[{i}][date_of_birth]"))
+                    date_of_birth=datetime.strptime(kwargs.get(f"members[{i}][date_of_birth]"), "%Y-%m-%d")
                 )
                 db.add(member)
 
@@ -89,6 +89,8 @@ async def submit_kyc(
 
     except Exception as e:
         db.rollback()
+        print("❌ ERROR in /submit-kyc:", str(e))  # <--- add this
         return JSONResponse(status_code=500, content={"error": str(e)})
+
     finally:
         db.close()
