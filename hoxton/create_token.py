@@ -54,7 +54,8 @@ def create_token(data: SessionIdRequest):
             product_id=product_id,
             plan_name=plan_name,
             expires_at=expires_at,
-            session_id=data.session_id  # ✅ <-- Add this line
+            session_id=data.session_id,  # ✅ <-- Add this line
+            kyc_submitted=0  # Explicitly set to 0
         )
         db.add(new_token)
         db.commit()
