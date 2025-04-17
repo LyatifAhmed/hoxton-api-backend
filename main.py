@@ -15,6 +15,7 @@ import stripe
 from uuid import uuid4
 from datetime import datetime, timedelta
 import aiosmtplib
+import json
 from email.message import EmailMessage
 from hoxton.mail import send_kyc_email
 from scanned_mail.database import init_db, SessionLocal
@@ -214,18 +215,39 @@ async def stripe_webhook(request: Request):
 
     return {"status": "ok"}
 
-
-
-
 @app.post("/api/create-subscription")
 def create_subscription(data: SubscriptionRequest):
-    print("Sending to HOXTON_API_URL:", HOXTON_API_URL)
-    print("Using HOXTON_API_KEY:", HOXTON_API_KEY[:6], "...")
+    print("🔁 Preparing subscription data for Hoxton Mix...")
 
     try:
+        # Convert to dict and begin transforming
+        payload = data.dict()
+
+        # Generate unique external_id
+        external_id = str(uuid4())
+        payload["external_id"] = external_id
+
+        # Ensure start_date is ISO 8601 formatted
+        payload.setdefault("subscription", {})
+        payload["subscription"]["start_date"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Validate country is already ISO 2-letter (assumed correct from frontend)
+        country_code = payload["shipping_address"].get("shipping_address_country", "")
+        if len(country_code) != 2:
+            raise HTTPException(status_code=400, detail=f"Invalid 2-letter country code: {country_code}")
+
+        # Format all member date_of_birth fields
+        for m in payload.get("members", []):
+            if "date_of_birth" in m and "T" not in m["date_of_birth"]:
+                m["date_of_birth"] += "T00:00:00Z"
+
+        print("📦 Outgoing HoxtonMix Payload:")
+        print(payload)
+
+        # Make the POST request
         response = requests.post(
             HOXTON_API_URL,
-            json=data.dict(),
+            json=payload,
             auth=HTTPBasicAuth(HOXTON_API_KEY, ''),
             headers={"Content-Type": "application/json"}
         )
@@ -236,13 +258,15 @@ def create_subscription(data: SubscriptionRequest):
             result = response.text
 
         if response.status_code in (200, 201):
+            # Mark token as submitted
             db = SessionLocal()
             db.query(KycToken).filter(KycToken.email == data.customer.email_address).update({
                 "kyc_submitted": 1
             })
             db.commit()
             db.close()
-            return {"message": "Subscription created.", "data": result}
+
+            return {"message": "Subscription created.", "external_id": external_id, "data": result}
         else:
             raise HTTPException(status_code=response.status_code, detail=result)
 
@@ -250,7 +274,7 @@ def create_subscription(data: SubscriptionRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Subscription creation error: {str(e)}")
-
+    
 @app.post("/api/update-subscription/{external_id}")
 def update_subscription(external_id: str, data: SubscriptionRequest):
     url = f"https://api.hoxtonmix.com/api/v2/subscription/{external_id}"
