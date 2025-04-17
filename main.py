@@ -205,7 +205,7 @@ async def stripe_webhook(request: Request):
             db.close()
 
             print(f"📩 Attempting to send email to {email} with token: {token}")
-            send_kyc_email(email, token)
+            await send_kyc_email(email, token)  # ✅ await added here
             print(f"✅ KYC email sent to {email}")
         else:
             print(f"⚠️ Missing or unrecognized price_id or email. price_id={price_id}, email={email}")
@@ -213,6 +213,7 @@ async def stripe_webhook(request: Request):
         print("⚠️ Webhook event was not checkout.session.completed")
 
     return {"status": "ok"}
+
 
 
 
