@@ -92,6 +92,7 @@ def recover_token(token: str):
 
         print("✅ Token is valid and active")
         return {
+            "token": token,
             "email": kyc.email,
             "product_id": kyc.product_id,
             "plan_name": kyc.plan_name,
