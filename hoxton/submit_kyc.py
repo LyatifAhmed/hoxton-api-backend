@@ -4,6 +4,7 @@ from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember, KycToken
 import os
 import shutil
+import traceback
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,6 @@ async def submit_kyc(
     city: str = Form(...),
     postcode: str = Form(...),
     country: str = Form(...),
-    # Catch all remaining fields (including member metadata and their files)
     **kwargs
 ):
     db: Session = SessionLocal()
@@ -59,7 +59,6 @@ async def submit_kyc(
         )
         db.add(subscription)
 
-        # Handle member data + file uploads
         for i in range(5):
             if f"members[{i}][first_name]" in kwargs:
                 first_name = kwargs.get(f"members[{i}][first_name]")
@@ -69,14 +68,12 @@ async def submit_kyc(
                 dob_str = kwargs.get(f"members[{i}][date_of_birth]")
                 dob = datetime.strptime(dob_str, "%Y-%m-%d")
 
-                # Manually parse file keys from starlette FormData
                 proof_of_id: UploadFile = kwargs.get(f"members[{i}][proof_of_id]")
                 proof_of_address: UploadFile = kwargs.get(f"members[{i}][proof_of_address]")
 
                 if not isinstance(proof_of_id, UploadFile) or not isinstance(proof_of_address, UploadFile):
                     raise HTTPException(status_code=400, detail=f"Missing file uploads for member {i+1}")
 
-                # Save files
                 id_filename = f"{external_id}_member{i}_id_{proof_of_id.filename}"
                 addr_filename = f"{external_id}_member{i}_addr_{proof_of_address.filename}"
 
@@ -103,10 +100,9 @@ async def submit_kyc(
 
     except Exception as e:
         db.rollback()
-        print("❌ ERROR during /api/submit-kyc:", str(e))
+        print("❌ Exception in /api/submit-kyc route:")
+        traceback.print_exc()  # 🧠 This will give full trace in your Render logs
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
         db.close()
-
-
