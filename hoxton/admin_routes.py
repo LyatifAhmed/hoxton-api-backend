@@ -2,22 +2,26 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember
-from datetime import datetime
 from sqlalchemy.orm import Session
+from datetime import datetime
 import os
 import secrets
+import glob
 
 router = APIRouter()
 security = HTTPBasic()
 
-# Read admin creds from environment
+# ✅ Admin credentials from .env
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "adminpass")
 
+UPLOAD_DIR = "uploaded_files"
+
 def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_user = secrets.compare_digest(credentials.username, ADMIN_USER)
-    correct_pass = secrets.compare_digest(credentials.password, ADMIN_PASS)
-    if not (correct_user and correct_pass):
+    if not (
+        secrets.compare_digest(credentials.username, ADMIN_USER)
+        and secrets.compare_digest(credentials.password, ADMIN_PASS)
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 @router.get("/api/admin/submission/{external_id}")
@@ -30,25 +34,35 @@ def get_submission_details(external_id: str, credentials: HTTPBasicCredentials =
 
         members = db.query(CompanyMember).filter(CompanyMember.subscription_id == external_id).all()
 
+        # Build uploaded file paths
+        member_data = []
+        for idx, m in enumerate(members):
+            # Look up actual files matching naming pattern
+            id_pattern = os.path.join(UPLOAD_DIR, f"{external_id}_member{idx}_id_*")
+            addr_pattern = os.path.join(UPLOAD_DIR, f"{external_id}_member{idx}_addr_*")
+
+            proof_id_files = glob.glob(id_pattern)
+            proof_addr_files = glob.glob(addr_pattern)
+
+            member_data.append({
+                "first_name": m.first_name,
+                "last_name": m.last_name,
+                "phone_number": m.phone_number,
+                "date_of_birth": m.date_of_birth.isoformat(),
+                "proof_of_id": proof_id_files[0] if proof_id_files else None,
+                "proof_of_address": proof_addr_files[0] if proof_addr_files else None
+            })
+
         return {
             "submission": {
                 "external_id": submission.external_id,
                 "company_name": submission.company_name,
                 "customer_email": submission.customer_email,
                 "start_date": submission.start_date.isoformat(),
-                "review_status": submission.review_status,
+                "review_status": submission.review_status
             },
-            "members": [
-                {
-                    "first_name": m.first_name,
-                    "last_name": m.last_name,
-                    "phone_number": m.phone_number,
-                    "date_of_birth": m.date_of_birth.isoformat(),
-                    "proof_of_id": f"/uploaded_files/{external_id}_member{idx}_id_*.jpg",     
-                    "proof_of_address": f"/uploaded_files/{external_id}_member{idx}_addr_*.jpg"
-                }
-                for idx, m in enumerate(members)
-            ]
+            "members": member_data
         }
+
     finally:
         db.close()
