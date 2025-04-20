@@ -19,7 +19,7 @@ import json
 from email.message import EmailMessage
 from hoxton.mail import send_kyc_email
 from scanned_mail.database import init_db, SessionLocal
-from scanned_mail.models import KycToken, Subscription, CompanyMember
+from scanned_mail.models import KycToken, Subscription, CompanyMember, ScannedMail
 from contextlib import asynccontextmanager
 from hoxton.create_token import router as token_router
 from hoxton.submit_kyc import router as submit_kyc_router
@@ -27,8 +27,9 @@ from hoxton.mail import send_kyc_email
 import subprocess
 from hoxton.admin_dashboard import router as admin_router
 from hoxton import admin_review 
-from hoxton.admin_routes import router as admin_router 
+from hoxton.admin_routers import router as admin_router 
 subprocess.call(["alembic", "upgrade", "head"])
+from sqlalchemy.orm import Session
 
 
 load_dotenv()
@@ -56,7 +57,6 @@ app.include_router(token_router)
 app.include_router(submit_kyc_router)
 app.include_router(admin_router)
 app.include_router(admin_review.router)
-app.include_router(admin_router)
 
 security = HTTPBasic()
 
@@ -118,35 +118,45 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
             secrets.compare_digest(credentials.password, BASIC_AUTH_PASS)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+
 @app.post("/webhook")
 async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = Depends(verify_basic_auth)):
     payload = await request.json()
+    db: Session = SessionLocal()
+
     try:
-        conn = sqlite3.connect("scanned_mail.db")
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS scanned_mail (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                external_id TEXT,
-                title TEXT,
-                sender TEXT,
-                file_urls TEXT
-            )
-        """)
-        c.execute("""
-            INSERT INTO scanned_mail (external_id, title, sender, file_urls)
-            VALUES (?, ?, ?, ?)
-        """, (
-            payload.get("external_id"),
-            payload.get("document_title"),
-            payload.get("sender_name"),
-            ",".join(payload.get("document_urls", []))
-        ))
-        conn.commit()
-        conn.close()
-        return {"message": "Webhook data saved successfully."}
+        scanned = ScannedMail(
+            external_id=payload.get("external_id"),
+            sender_name=payload.get("sender_name"),
+            document_title=payload.get("document_title"),
+            file_name=payload.get("file_names", [""])[0] if isinstance(payload.get("file_names"), list) else "",
+            url=payload.get("document_urls", [""])[0] if isinstance(payload.get("document_urls"), list) else "",
+            url_envelope_front=payload.get("envelope_front_url", ""),
+            url_envelope_back=payload.get("envelope_back_url", ""),
+            reference_number=payload.get("reference_number"),
+            summary=payload.get("summary"),
+            industry=payload.get("industry"),
+            categories=",".join(payload.get("categories", [])),
+            sub_categories=",".join(payload.get("sub_categories", [])),
+            key_information=str(payload.get("key_information", {})),
+            created_at=datetime.utcnow()
+        )
+
+        db.add(scanned)
+        db.commit()
+
+        return {"message": "✅ Scanned mail saved successfully."}
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        db.rollback()
+        print("❌ Error saving scanned mail:")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        db.close()
+
 
 @app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
