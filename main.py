@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 import stripe
 from uuid import uuid4
 from datetime import datetime, timedelta
+from fastapi.staticfiles import StaticFiles
 import aiosmtplib
 import json
 from email.message import EmailMessage
@@ -44,6 +45,8 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+app.mount("/uploaded_files", StaticFiles(directory="uploaded_files"), name="uploaded_files")
 
 app.add_middleware(
     CORSMiddleware,
