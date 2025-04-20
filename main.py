@@ -24,6 +24,10 @@ from contextlib import asynccontextmanager
 from hoxton.create_token import router as token_router
 from hoxton.submit_kyc import router as submit_kyc_router
 from hoxton.mail import send_kyc_email
+import subprocess
+from hoxton.admin_dashboard import router as admin_router
+subprocess.call(["alembic", "upgrade", "head"])
+
 
 load_dotenv()
 
@@ -48,6 +52,7 @@ app.add_middleware(
 
 app.include_router(token_router)
 app.include_router(submit_kyc_router)
+app.include_router(admin_router)
 
 security = HTTPBasic()
 

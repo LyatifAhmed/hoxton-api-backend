@@ -43,7 +43,11 @@ class Subscription(Base):
 
     start_date = Column(DateTime, default=datetime.utcnow)
 
+    review_status = Column(String, default="pending")
+    notes = Column(Text, nullable=True)        # 📝 Optional internal notes
+
     members = relationship("CompanyMember", back_populates="subscription")
+
 
 
 class CompanyMember(Base):
