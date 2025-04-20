@@ -12,8 +12,8 @@ router = APIRouter()
 security = HTTPBasic()
 
 # ✅ Admin credentials from .env
-ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-ADMIN_PASS = os.getenv("ADMIN_PASS", "adminpass")
+ADMIN_USER = os.getenv("ADMIN_USER")
+ADMIN_PASS = os.getenv("ADMIN_PASS")
 
 UPLOAD_DIR = "uploaded_files"
 
