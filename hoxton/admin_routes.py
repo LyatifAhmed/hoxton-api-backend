@@ -4,11 +4,10 @@ from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember
 from sqlalchemy.orm import Session
 from datetime import datetime
-from urllib.parse import quote
 import os
 import secrets
 import glob
-import traceback
+import traceback  # Added for logging stack traces
 
 router = APIRouter()
 security = HTTPBasic()
@@ -26,16 +25,18 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
     ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-
 @router.get("/api/admin/submission/{external_id}")
 def get_submission_details(external_id: str, credentials: HTTPBasicCredentials = Depends(verify_basic_auth)):
     db: Session = SessionLocal()
     try:
+        print(f"🔍 Fetching submission for external_id: {external_id}")
         submission = db.query(Subscription).filter(Subscription.external_id == external_id).first()
         if not submission:
+            print("❌ Submission not found")
             raise HTTPException(status_code=404, detail="Submission not found")
 
         members = db.query(CompanyMember).filter(CompanyMember.subscription_id == external_id).all()
+        print(f"👥 Found {len(members)} members")
 
         member_data = []
         for idx, m in enumerate(members):
@@ -45,13 +46,16 @@ def get_submission_details(external_id: str, credentials: HTTPBasicCredentials =
             proof_id_files = glob.glob(id_pattern)
             proof_addr_files = glob.glob(addr_pattern)
 
+            print(f"📂 ID files for member {idx}: {proof_id_files}")
+            print(f"📂 Address files for member {idx}: {proof_addr_files}")
+
             member_data.append({
                 "first_name": m.first_name,
                 "last_name": m.last_name,
                 "phone_number": m.phone_number,
                 "date_of_birth": m.date_of_birth.isoformat(),
-                "proof_of_id": proof_id_files[0] if proof_id_files else None,
-                "proof_of_address": proof_addr_files[0] if proof_addr_files else None
+                "proof_of_id": f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME') or 'your-backend.onrender.com'}/{proof_id_files[0]}" if proof_id_files else None,
+                "proof_of_address": f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME') or 'your-backend.onrender.com'}/{proof_addr_files[0]}" if proof_addr_files else None,
             })
 
         return {
@@ -66,8 +70,11 @@ def get_submission_details(external_id: str, credentials: HTTPBasicCredentials =
         }
 
     except Exception as e:
+        print("❌ Exception occurred while fetching submission:")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
     finally:
         db.close()
+
 
