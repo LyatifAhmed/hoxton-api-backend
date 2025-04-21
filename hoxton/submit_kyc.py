@@ -13,6 +13,8 @@ router = APIRouter()
 UPLOAD_DIR = "uploaded_files"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
 @router.post("/api/submit-kyc")
 async def submit_kyc(request: Request):
     form = await request.form()
@@ -40,14 +42,13 @@ async def submit_kyc(request: Request):
         kyc_token.kyc_submitted = 1
         external_id = email.split("@")[0] + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-        # ✅ Save Subscription info
         subscription = Subscription(
             external_id=external_id,
             product_id=product_id,
             customer_email=email,
-            customer_first_name=form.get("customer_first_name", ""),
-            customer_last_name=form.get("customer_last_name", ""),
-            customer_middle_name=form.get("customer_middle_name", ""),
+            customer_first_name="",
+            customer_last_name="",
+            customer_middle_name="",
             shipping_line_1=address_line_1,
             shipping_line_2=address_line_2,
             shipping_city=city,
@@ -61,52 +62,58 @@ async def submit_kyc(request: Request):
         )
         db.add(subscription)
 
-        # ✅ Loop through max 5 members
+        # ✅ Loop through uploaded members
         for i in range(5):
-            if f"members[{i}][first_name]" not in form:
-                continue
+            if f"members[{i}][first_name]" in form:
+                first_name = form.get(f"members[{i}][first_name]")
+                middle_name = form.get(f"members[{i}][middle_name]", "")
+                last_name = form.get(f"members[{i}][last_name]")
+                phone = form.get(f"members[{i}][phone_number]", "")
+                dob_str = form.get(f"members[{i}][date_of_birth]")
 
-            first_name = form.get(f"members[{i}][first_name]")
-            middle_name = form.get(f"members[{i}][middle_name]", "")
-            last_name = form.get(f"members[{i}][last_name]")
-            phone = form.get(f"members[{i}][phone_number]", "")
-            dob_str = form.get(f"members[{i}][date_of_birth]")
-
-            if not dob_str:
-                raise HTTPException(status_code=400, detail=f"Missing date of birth for member {i+1}")
-            try:
                 dob = datetime.strptime(dob_str, "%Y-%m-%d")
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Invalid date format for member {i+1}")
 
-            proof_of_id: UploadFile = form.get(f"members[{i}][proof_of_id]")
-            proof_of_address: UploadFile = form.get(f"members[{i}][proof_of_address]")
+                proof_of_id = form.get(f"members[{i}][proof_of_id]")
+                proof_of_address = form.get(f"members[{i}][proof_of_address]")
 
-            if not isinstance(proof_of_id, UploadFile) or not isinstance(proof_of_address, UploadFile):
-                raise HTTPException(status_code=400, detail=f"Missing or invalid file uploads for member {i+1}")
+                if not hasattr(proof_of_id, "file") or not hasattr(proof_of_address, "file"):
+                    raise HTTPException(status_code=400, detail=f"Missing file uploads for member {i+1}")
 
-            # ✅ Save uploaded files
-            id_filename = f"{external_id}_member{i}_id_{proof_of_id.filename}"
-            addr_filename = f"{external_id}_member{i}_addr_{proof_of_address.filename}"
+                # ✅ Check file size (read only the first 5MB)
+                proof_of_id.file.seek(0, os.SEEK_END)
+                id_size = proof_of_id.file.tell()
+                proof_of_id.file.seek(0)
 
-            with open(os.path.join(UPLOAD_DIR, id_filename), "wb") as f:
-                shutil.copyfileobj(proof_of_id.file, f)
-            with open(os.path.join(UPLOAD_DIR, addr_filename), "wb") as f:
-                shutil.copyfileobj(proof_of_address.file, f)
+                proof_of_address.file.seek(0, os.SEEK_END)
+                addr_size = proof_of_address.file.tell()
+                proof_of_address.file.seek(0)
 
-            # ✅ Save to DB
-            member = CompanyMember(
-                subscription_id=external_id,
-                first_name=first_name,
-                middle_name=middle_name,
-                last_name=last_name,
-                phone_number=phone,
-                date_of_birth=dob
-            )
-            db.add(member)
+                if id_size > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=400, detail=f"Proof of ID file too large for member {i+1} (max 5MB)")
+
+                if addr_size > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=400, detail=f"Proof of Address file too large for member {i+1} (max 5MB)")
+
+                id_filename = f"{external_id}_member{i}_id_{proof_of_id.filename}"
+                addr_filename = f"{external_id}_member{i}_addr_{proof_of_address.filename}"
+
+                with open(os.path.join(UPLOAD_DIR, id_filename), "wb") as f:
+                    shutil.copyfileobj(proof_of_id.file, f)
+                with open(os.path.join(UPLOAD_DIR, addr_filename), "wb") as f:
+                    shutil.copyfileobj(proof_of_address.file, f)
+
+                member = CompanyMember(
+                    subscription_id=external_id,
+                    first_name=first_name,
+                    middle_name=middle_name,
+                    last_name=last_name,
+                    phone_number=phone,
+                    date_of_birth=dob
+                )
+                db.add(member)
 
         db.commit()
-        return {"message": "✅ KYC submitted successfully", "external_id": external_id}
+        return {"message": "KYC submitted successfully", "external_id": external_id}
 
     except Exception as e:
         db.rollback()
@@ -116,3 +123,4 @@ async def submit_kyc(request: Request):
 
     finally:
         db.close()
+
