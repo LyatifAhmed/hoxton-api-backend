@@ -42,11 +42,20 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 async def lifespan(app: FastAPI):
     print("🚀 Initializing DB at startup...")
     init_db()
+
+    # ✅ Ensure 'uploaded_files' folder exists
+    if not os.path.exists("uploaded_files"):
+        os.makedirs("uploaded_files")
+        print("📁 Created 'uploaded_files' folder")
+    else:
+        print("📁 'uploaded_files' folder already exists")
+
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 
-app.mount("/uploaded_files", StaticFiles(directory="uploaded_files"), name="uploaded_files")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,7 +64,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.mount("/uploaded_files", StaticFiles(directory="uploaded_files"), name="uploaded_files")
 app.include_router(token_router)
 app.include_router(submit_kyc_router)
 app.include_router(admin_router)
@@ -152,11 +161,10 @@ async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = 
         return {"message": "✅ Scanned mail saved successfully."}
     
     except Exception as e:
-        db.rollback()
-        print("❌ Error saving scanned mail:")
+        print("❌ Stripe webhook processing failed:", str(e))
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Stripe processing error")
 
     finally:
         db.close()

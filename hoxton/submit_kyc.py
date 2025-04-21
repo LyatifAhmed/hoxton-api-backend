@@ -45,9 +45,9 @@ async def submit_kyc(request: Request):
             external_id=external_id,
             product_id=product_id,
             customer_email=email,
-            customer_first_name="",
-            customer_last_name="",
-            customer_middle_name="",
+            customer_first_name=form.get("customer_first_name", ""),
+            customer_last_name=form.get("customer_last_name", ""),
+            customer_middle_name=form.get("customer_middle_name", ""),
             shipping_line_1=address_line_1,
             shipping_line_2=address_line_2,
             shipping_city=city,
@@ -61,45 +61,52 @@ async def submit_kyc(request: Request):
         )
         db.add(subscription)
 
-        # ✅ Loop through owners
+        # ✅ Loop through max 5 members
         for i in range(5):
-            if f"members[{i}][first_name]" in form:
-                first_name = form.get(f"members[{i}][first_name]")
-                middle_name = form.get(f"members[{i}][middle_name]", "")
-                last_name = form.get(f"members[{i}][last_name]")
-                phone = form.get(f"members[{i}][phone_number]", "")
-                dob_str = form.get(f"members[{i}][date_of_birth]")
+            if f"members[{i}][first_name]" not in form:
+                continue
 
+            first_name = form.get(f"members[{i}][first_name]")
+            middle_name = form.get(f"members[{i}][middle_name]", "")
+            last_name = form.get(f"members[{i}][last_name]")
+            phone = form.get(f"members[{i}][phone_number]", "")
+            dob_str = form.get(f"members[{i}][date_of_birth]")
+
+            if not dob_str:
+                raise HTTPException(status_code=400, detail=f"Missing date of birth for member {i+1}")
+            try:
                 dob = datetime.strptime(dob_str, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid date format for member {i+1}")
 
-                proof_of_id = form.get(f"members[{i}][proof_of_id]")
-                proof_of_address = form.get(f"members[{i}][proof_of_address]")
+            proof_of_id: UploadFile = form.get(f"members[{i}][proof_of_id]")
+            proof_of_address: UploadFile = form.get(f"members[{i}][proof_of_address]")
 
-                # ✅ Save uploaded files
-                if not hasattr(proof_of_id, "filename") or not hasattr(proof_of_address, "filename"):
-                    raise HTTPException(status_code=400, detail=f"Missing file uploads for member {i+1}")
+            if not isinstance(proof_of_id, UploadFile) or not isinstance(proof_of_address, UploadFile):
+                raise HTTPException(status_code=400, detail=f"Missing or invalid file uploads for member {i+1}")
 
-                id_filename = f"{external_id}_member{i}_id_{proof_of_id.filename}"
-                addr_filename = f"{external_id}_member{i}_addr_{proof_of_address.filename}"
+            # ✅ Save uploaded files
+            id_filename = f"{external_id}_member{i}_id_{proof_of_id.filename}"
+            addr_filename = f"{external_id}_member{i}_addr_{proof_of_address.filename}"
 
-                with open(os.path.join(UPLOAD_DIR, id_filename), "wb") as f:
-                    shutil.copyfileobj(proof_of_id.file, f)
-                with open(os.path.join(UPLOAD_DIR, addr_filename), "wb") as f:
-                    shutil.copyfileobj(proof_of_address.file, f)
+            with open(os.path.join(UPLOAD_DIR, id_filename), "wb") as f:
+                shutil.copyfileobj(proof_of_id.file, f)
+            with open(os.path.join(UPLOAD_DIR, addr_filename), "wb") as f:
+                shutil.copyfileobj(proof_of_address.file, f)
 
-                # ✅ Save to DB
-                member = CompanyMember(
-                    subscription_id=external_id,
-                    first_name=first_name,
-                    middle_name=middle_name,
-                    last_name=last_name,
-                    phone_number=phone,
-                    date_of_birth=dob
-                )
-                db.add(member)
+            # ✅ Save to DB
+            member = CompanyMember(
+                subscription_id=external_id,
+                first_name=first_name,
+                middle_name=middle_name,
+                last_name=last_name,
+                phone_number=phone,
+                date_of_birth=dob
+            )
+            db.add(member)
 
         db.commit()
-        return {"message": "KYC submitted successfully", "external_id": external_id}
+        return {"message": "✅ KYC submitted successfully", "external_id": external_id}
 
     except Exception as e:
         db.rollback()
