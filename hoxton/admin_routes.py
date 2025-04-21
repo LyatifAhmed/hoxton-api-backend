@@ -8,6 +8,7 @@ from urllib.parse import quote
 import os
 import secrets
 import glob
+import traceback
 
 router = APIRouter()
 security = HTTPBasic()
@@ -25,7 +26,6 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
     ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-from urllib.parse import quote
 
 @router.get("/api/admin/submission/{external_id}")
 def get_submission_details(external_id: str, credentials: HTTPBasicCredentials = Depends(verify_basic_auth)):
@@ -37,10 +37,6 @@ def get_submission_details(external_id: str, credentials: HTTPBasicCredentials =
 
         members = db.query(CompanyMember).filter(CompanyMember.subscription_id == external_id).all()
 
-        RENDER_DOMAIN = os.getenv("RENDER_BACKEND_DOMAIN")  
-        if not RENDER_DOMAIN:
-            raise HTTPException(status_code=500, detail="RENDER_BACKEND_DOMAIN not set")
-
         member_data = []
         for idx, m in enumerate(members):
             id_pattern = os.path.join(UPLOAD_DIR, f"{external_id}_member{idx}_id_*")
@@ -49,17 +45,13 @@ def get_submission_details(external_id: str, credentials: HTTPBasicCredentials =
             proof_id_files = glob.glob(id_pattern)
             proof_addr_files = glob.glob(addr_pattern)
 
-            # Convert to public URLs (if files exist)
-            id_url = f"https://{RENDER_DOMAIN}/uploaded_files/{quote(os.path.basename(proof_id_files[0]))}" if proof_id_files else None
-            addr_url = f"https://{RENDER_DOMAIN}/uploaded_files/{quote(os.path.basename(proof_addr_files[0]))}" if proof_addr_files else None
-
             member_data.append({
                 "first_name": m.first_name,
                 "last_name": m.last_name,
                 "phone_number": m.phone_number,
                 "date_of_birth": m.date_of_birth.isoformat(),
-                "proof_of_id": id_url,
-                "proof_of_address": addr_url
+                "proof_of_id": proof_id_files[0] if proof_id_files else None,
+                "proof_of_address": proof_addr_files[0] if proof_addr_files else None
             })
 
         return {
@@ -73,5 +65,9 @@ def get_submission_details(external_id: str, credentials: HTTPBasicCredentials =
             "members": member_data
         }
 
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
     finally:
         db.close()
+
