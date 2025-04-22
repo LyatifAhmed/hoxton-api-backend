@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .base import Base
@@ -44,7 +44,7 @@ class Subscription(Base):
     start_date = Column(DateTime, default=datetime.utcnow)
 
     review_status = Column(String, default="pending")
-    notes = Column(Text, nullable=True)        # 📝 Optional internal notes
+    rejection_reason = Column(Text, nullable=True)        # 📝 Optional internal notes
 
     members = relationship("CompanyMember", back_populates="subscription")
 
