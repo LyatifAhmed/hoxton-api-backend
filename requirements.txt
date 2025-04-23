@@ -36,4 +36,4 @@ typing_extensions==4.13.0
 urllib3==2.3.0
 uvicorn==0.34.0
 yarl==1.18.3
-alembic
+alembichttpx==0.28.1

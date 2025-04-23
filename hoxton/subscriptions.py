@@ -1,5 +1,6 @@
 import os
 import requests
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()  # Loads variables from .env
@@ -8,24 +9,31 @@ API_BASE_URL = os.getenv("HOXTON_API_URL")  # Should be: https://api.hoxtonmix.c
 API_KEY = os.getenv("HOXTON_API_KEY")  # Your API key as username in Basic Auth
 
 
-def create_subscription(data: dict):
+async def create_subscription(data: dict):
     url = f"{API_BASE_URL}/subscription"
 
     try:
-        response = requests.post(
-            url,
-            json=data,
-            auth=(API_KEY, ""),  # Basic Auth with no password
-            timeout=10
-        )
-        response.raise_for_status()
-        return response.json() if response.content else {"message": "Subscription created successfully."}
-    
-    except requests.exceptions.HTTPError as http_err:
-        return {"error": str(http_err), "details": response.text}
-    
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                url,
+                json=data,
+                auth=(API_KEY, "")  # Basic Auth: API key as username, empty password
+            )
+            response.raise_for_status()
+            return response.json() if response.content else {"message": "Subscription created successfully."}
+
+    except httpx.HTTPStatusError as http_err:
+        return {
+            "error": str(http_err),
+            "details": http_err.response.text,
+            "status_code": http_err.response.status_code
+        }
+
     except Exception as err:
-        return {"error": "An unexpected error occurred", "details": str(err)}
+        return {
+            "error": "An unexpected error occurred",
+            "details": str(err)
+        }
 
 
 def build_hoxton_payload(subscription, members):

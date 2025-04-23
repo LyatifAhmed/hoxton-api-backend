@@ -35,13 +35,13 @@ async def submit_kyc(request: Request):
         raw_country = payload.get("country", "")
         members = payload.get("members", [])
 
-        # Convert organisation_type to integer if needed
+        # Convert organisation_type to integer
         try:
             organisation_type = int(organisation_type)
         except ValueError:
             raise HTTPException(status_code=400, detail="Organisation type must be an integer.")
 
-        # Country Code Conversion
+        # Convert country to alpha_2 code
         try:
             if len(raw_country) == 2:
                 country = raw_country.upper()
@@ -51,7 +51,7 @@ async def submit_kyc(request: Request):
         except Exception:
             raise HTTPException(status_code=400, detail=f"Invalid country: {raw_country}")
 
-        if not all([token, product_id, customer_email, company_name, organisation_type, address_line_1, city, postcode, country]):
+        if not all([token, product_id, customer_email, customer_first_name, customer_last_name, company_name, organisation_type, address_line_1, city, postcode, country]):
             raise HTTPException(status_code=400, detail="Missing required fields.")
 
         kyc_token = db.query(KycToken).filter(KycToken.token == token).first()
@@ -66,8 +66,8 @@ async def submit_kyc(request: Request):
             external_id=external_id,
             product_id=product_id,
             customer_email=customer_email,
-            customer_first_name=customer_first_name or "",
-            customer_last_name=customer_last_name or "",
+            customer_first_name=customer_first_name,
+            customer_last_name=customer_last_name,
             customer_middle_name="",
             shipping_line_1=address_line_1,
             shipping_line_2=address_line_2,
@@ -99,16 +99,28 @@ async def submit_kyc(request: Request):
 
         kyc_token.kyc_submitted = 1
         db.commit()
-        return {"message": "KYC submitted successfully", "external_id": external_id}
 
+        # ✅ Build payload and send to Hoxton Mix
+        hoxton_payload = build_hoxton_payload(subscription, members)
+        hoxton_response = await create_subscription(hoxton_payload)
+        print("✅ Hoxton Mix API Response:", hoxton_response)
+
+        return {
+            "message": "KYC submitted and sent to Hoxton Mix",
+            "external_id": external_id,
+            "hoxton_response": hoxton_response
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         print("❌ Error submitting KYC:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
-
     finally:
         db.close()
+
 
 
 
