@@ -5,13 +5,9 @@ from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember, KycToken
 from datetime import datetime
 import traceback
-import httpx
-import os
+import pycountry
 
 router = APIRouter()
-
-HOXTON_API_URL = "https://api.hoxtonmix.com/api/v2/subscription"
-HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
 
 @router.post("/api/submit-kyc")
 async def submit_kyc(request: Request):
@@ -21,25 +17,38 @@ async def submit_kyc(request: Request):
         payload = await request.json()
         token = payload.get("token")
         product_id = payload.get("product_id")
-        customer_email = payload.get("customer_email")
+        customer_email = payload.get("email")
         customer_first_name = payload.get("customer_first_name")
         customer_last_name = payload.get("customer_last_name")
 
         company_name = payload.get("company_name")
-        trading_name = payload.get("trading_name")
+        trading_name = payload.get("trading_name", "")
         organisation_type = payload.get("organisation_type")
-        if isinstance(organisation_type, str):
-            organisation_type = int(organisation_type)
-
-        limited_company_number = payload.get("limited_company_number")
-        telephone_number = payload.get("phone_number")
+        limited_company_number = payload.get("limited_company_number", "")
+        telephone_number = payload.get("phone_number", "")
 
         address_line_1 = payload.get("address_line_1")
-        address_line_2 = payload.get("address_line_2")
+        address_line_2 = payload.get("address_line_2", "")
         city = payload.get("city")
         postcode = payload.get("postcode")
-        country = payload.get("country")
+        raw_country = payload.get("country", "")
         members = payload.get("members", [])
+
+        # Convert organisation_type to integer if needed
+        try:
+            organisation_type = int(organisation_type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Organisation type must be an integer.")
+
+        # Country Code Conversion
+        try:
+            if len(raw_country) == 2:
+                country = raw_country.upper()
+            else:
+                match = pycountry.countries.get(name=raw_country) or pycountry.countries.search_fuzzy(raw_country)[0]
+                country = match.alpha_2
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid country: {raw_country}")
 
         if not all([token, product_id, customer_email, company_name, organisation_type, address_line_1, city, postcode, country]):
             raise HTTPException(status_code=400, detail="Missing required fields.")
@@ -72,12 +81,10 @@ async def submit_kyc(request: Request):
         )
         db.add(subscription)
 
-        hoxton_members = []
         for idx, m in enumerate(members):
             if not m.get("email"):
                 raise HTTPException(status_code=400, detail=f"Missing email for member {idx+1}")
 
-            dob = datetime.strptime(m.get("date_of_birth"), "%Y-%m-%d")
             member = CompanyMember(
                 subscription_id=external_id,
                 first_name=m.get("first_name", ""),
@@ -85,69 +92,23 @@ async def submit_kyc(request: Request):
                 last_name=m.get("last_name", ""),
                 phone_number=m.get("phone_number", ""),
                 email=m.get("email"),
-                date_of_birth=dob,
+                date_of_birth=datetime.strptime(m.get("date_of_birth"), "%Y-%m-%d") if m.get("date_of_birth") else None,
             )
             db.add(member)
 
-            hoxton_members.append({
-                "first_name": m.get("first_name", ""),
-                "middle_name": m.get("middle_name", ""),
-                "last_name": m.get("last_name", ""),
-                "phone_number": m.get("phone_number", ""),
-                "date_of_birth": dob.isoformat()
-            })
-
         kyc_token.kyc_submitted = 1
         db.commit()
-
-        # Forward to Hoxton Mix
-        hoxton_payload = {
-            "external_id": external_id,
-            "product_id": product_id,
-            "customer": {
-                "first_name": customer_first_name,
-                "middle_name": "",
-                "last_name": customer_last_name,
-                "email_address": customer_email
-            },
-            "shipping_address": {
-                "shipping_address_line_1": address_line_1,
-                "shipping_address_line_2": address_line_2,
-                "shipping_address_city": city,
-                "shipping_address_postcode": postcode,
-                "shipping_address_country": country
-            },
-            "subscription": {
-                "start_date": datetime.utcnow().isoformat()
-            },
-            "company": {
-                "name": company_name,
-                "trading_name": trading_name,
-                "limited_company_number": limited_company_number,
-                "organisation_type": organisation_type,
-                "telephone_number": telephone_number
-            },
-            "members": hoxton_members
-        }
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                HOXTON_API_URL,
-                json=hoxton_payload,
-                auth=(HOXTON_API_KEY, "")
-            )
-            response.raise_for_status()
-
-        return {"message": "KYC submitted and forwarded to Hoxton Mix", "external_id": external_id}
+        return {"message": "KYC submitted successfully", "external_id": external_id}
 
     except Exception as e:
         db.rollback()
-        print("❌ Error submitting or forwarding KYC:", str(e))
+        print("❌ Error submitting KYC:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
         db.close()
+
 
 
 
