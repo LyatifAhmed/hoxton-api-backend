@@ -4,14 +4,15 @@ from sqlalchemy.orm import Session
 from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember, KycToken
 from datetime import datetime
-from httpx import AsyncClient
 import traceback
+import httpx
 import os
+from base64 import b64encode
 
 router = APIRouter()
 
-HOXTON_API_URL = "https://api.hoxtonmix.com/partner/v2/subscription"
-HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")  # Set this in your environment
+HOXTON_API_URL = os.getenv("HOXTON_API_URL")
+HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
 
 @router.post("/api/submit-kyc")
 async def submit_kyc(request: Request):
@@ -24,19 +25,16 @@ async def submit_kyc(request: Request):
         customer_email = payload.get("customer_email")
         customer_first_name = payload.get("customer_first_name")
         customer_last_name = payload.get("customer_last_name")
-
         company_name = payload.get("company_name")
         trading_name = payload.get("trading_name")
         organisation_type = payload.get("organisation_type")
         limited_company_number = payload.get("limited_company_number")
         telephone_number = payload.get("phone_number")
-
         address_line_1 = payload.get("address_line_1")
         address_line_2 = payload.get("address_line_2")
         city = payload.get("city")
         postcode = payload.get("postcode")
         country = payload.get("country")
-
         members = payload.get("members", [])
 
         if not all([token, product_id, customer_email, company_name, organisation_type, address_line_1, city, postcode, country]):
@@ -70,12 +68,11 @@ async def submit_kyc(request: Request):
         )
         db.add(subscription)
 
-        api_members = []
-
+        member_objects = []
         for idx, m in enumerate(members):
             if not m.get("email"):
                 raise HTTPException(status_code=400, detail=f"Missing email for member {idx+1}")
-
+            dob_iso = datetime.strptime(m["date_of_birth"], "%Y-%m-%d").isoformat() + "T00:00:00.000Z"
             member = CompanyMember(
                 subscription_id=external_id,
                 first_name=m.get("first_name", ""),
@@ -83,51 +80,61 @@ async def submit_kyc(request: Request):
                 last_name=m.get("last_name", ""),
                 phone_number=m.get("phone_number", ""),
                 email=m.get("email"),
-                date_of_birth=datetime.strptime(m.get("date_of_birth"), "%Y-%m-%d") if m.get("date_of_birth") else None,
+                date_of_birth=dob_iso,
             )
             db.add(member)
-
-            api_members.append({
-                "email": m["email"]
+            member_objects.append({
+                "first_name": m.get("first_name", ""),
+                "middle_name": m.get("middle_name", ""),
+                "last_name": m.get("last_name", ""),
+                "phone_number": m.get("phone_number", ""),
+                "date_of_birth": dob_iso
             })
 
         kyc_token.kyc_submitted = 1
         db.commit()
 
-        # Auto-forward to Hoxton Mix Partner API
-        async with AsyncClient() as client:
+        hoxton_payload = {
+            "external_id": external_id,
+            "product_id": product_id,
+            "customer": {
+                "first_name": customer_first_name,
+                "middle_name": "",
+                "last_name": customer_last_name,
+                "email_address": customer_email,
+            },
+            "shipping_address": {
+                "shipping_address_line_1": address_line_1,
+                "shipping_address_line_2": address_line_2,
+                "shipping_address_city": city,
+                "shipping_address_postcode": postcode,
+                "shipping_address_country": country
+            },
+            "subscription": {
+                "start_date": datetime.utcnow().isoformat() + "Z"
+            },
+            "company": {
+                "name": company_name,
+                "trading_name": trading_name,
+                "limited_company_number": limited_company_number,
+                "organisation_type": organisation_type,
+                "telephone_number": telephone_number,
+            },
+            "members": member_objects
+        }
+
+        async with httpx.AsyncClient() as client:
+            auth_header = b64encode(f"{HOXTON_API_KEY}:".encode()).decode()
             response = await client.post(
                 HOXTON_API_URL,
-                headers={"Authorization": f"Bearer {HOXTON_API_KEY}"},
-                json={
-                    "external_id": external_id,
-                    "product_id": product_id,
-                    "customer": {
-                        "email": customer_email,
-                        "first_name": customer_first_name,
-                        "last_name": customer_last_name
-                    },
-                    "company": {
-                        "name": company_name,
-                        "trading_name": trading_name,
-                        "number": limited_company_number,
-                        "organisation_type": organisation_type
-                    },
-                    "shipping_address": {
-                        "line_1": address_line_1,
-                        "line_2": address_line_2,
-                        "city": city,
-                        "postcode": postcode,
-                        "country": country
-                    },
-                    "members": api_members
-                }
+                json=hoxton_payload,
+                headers={"Authorization": f"Basic {auth_header}"}
             )
 
-            if response.status_code != 200:
-                raise HTTPException(status_code=502, detail="Failed to forward data to Hoxton Mix")
+        if response.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Error submitting to Hoxton Mix: {response.text}")
 
-        return {"message": "KYC submitted and forwarded to Hoxton Mix", "external_id": external_id}
+        return {"message": "KYC submitted and forwarded successfully", "external_id": external_id}
 
     except Exception as e:
         db.rollback()
@@ -137,5 +144,6 @@ async def submit_kyc(request: Request):
 
     finally:
         db.close()
+
 
 
