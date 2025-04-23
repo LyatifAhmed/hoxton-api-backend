@@ -40,7 +40,20 @@ async def submit_kyc(request: Request):
 
         members = payload.get("members", [])
 
-        if not all([token, product_id, customer_email, company_name, organisation_type, address_line_1, city, postcode, country]):
+        if not all([
+            token,
+            product_id,
+            customer_email,
+            customer_first_name,
+            customer_last_name,
+            company_name,
+            organisation_type,
+            address_line_1,
+            city,
+            postcode,
+            country
+        ]):
+
             raise HTTPException(status_code=400, detail="Missing required fields.")
 
         # ✅ Token validation
