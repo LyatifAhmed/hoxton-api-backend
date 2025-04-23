@@ -64,7 +64,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/uploaded_files", StaticFiles(directory="uploaded_files"), name="uploaded_files")
 app.include_router(token_router)
 app.include_router(submit_kyc_router)
 app.include_router(admin_router)
