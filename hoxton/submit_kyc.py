@@ -88,8 +88,14 @@ async def submit_kyc(request: Request):
 
         members_list = []
         for idx, m in enumerate(members):
-            if not m.get("email"):
-                raise HTTPException(status_code=400, detail=f"Missing email for member {idx+1}")
+            required_fields = ["first_name", "last_name", "date_of_birth", "email"]
+            missing = [field for field in required_fields if not m.get(field)]
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing fields for member {idx+1}: {', '.join(missing)}"
+                )
+
 
             member = CompanyMember(
                 subscription_id=external_id,
