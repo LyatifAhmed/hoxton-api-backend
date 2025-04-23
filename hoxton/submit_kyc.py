@@ -100,10 +100,15 @@ async def submit_kyc(request: Request):
         kyc_token.kyc_submitted = 1
         db.commit()
 
+        # ✅ Fetch saved members as SQLAlchemy objects
+        saved_members = db.query(CompanyMember).filter(CompanyMember.subscription_id == external_id).all()
+
         # ✅ Build payload and send to Hoxton Mix
-        hoxton_payload = build_hoxton_payload(subscription, members)
+        hoxton_payload = build_hoxton_payload(subscription, saved_members)
         hoxton_response = await create_subscription(hoxton_payload)
         print("✅ Hoxton Mix API Response:", hoxton_response)
+        print("Sending payload to Hoxton Mix:", hoxton_payload)
+
 
         return {
             "message": "KYC submitted and sent to Hoxton Mix",
