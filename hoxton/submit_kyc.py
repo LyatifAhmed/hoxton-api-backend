@@ -23,7 +23,7 @@ async def submit_kyc(request: Request):
         customer_last_name = payload.get("customer_last_name")
 
         company_name = payload.get("company_name")
-        trading_name = payload.get("trading_name", "")
+        trading_name = payload.get("trading_name", "").strip() or payload.get("company_name")
         organisation_type = payload.get("organisation_type")
         limited_company_number = payload.get("limited_company_number", "")
         telephone_number = payload.get("phone_number", "")

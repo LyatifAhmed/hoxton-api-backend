@@ -58,7 +58,7 @@ def build_hoxton_payload(subscription, members):
         },
         "company": {
             "name": subscription.company_name,
-            "trading_name": subscription.company_trading_name or "",
+            "trading_name": subscription.company_trading_name or subscription.company_name,
             "limited_company_number": subscription.company_number or "",
             "organisation_type": subscription.organisation_type,
             "telephone_number": subscription.telephone_number or "",
