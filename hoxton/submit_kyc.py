@@ -5,19 +5,27 @@ from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember, KycToken
 from datetime import datetime
 import traceback
-import httpx
+import requests
 import os
-from base64 import b64encode
+import pycountry
 
 router = APIRouter()
 
-HOXTON_API_URL = os.getenv("HOXTON_API_URL")
-HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
+HOXTON_API_URL = "https://api.hoxtonmix.com/api/v2/subscription"
+HOXTON_API_TOKEN = os.getenv("HOXTON_API_TOKEN")
+
+def convert_to_iso_country_code(name_or_code: str) -> str:
+    try:
+        if len(name_or_code) == 2:
+            return name_or_code.upper()
+        country = pycountry.countries.lookup(name_or_code)
+        return country.alpha_2
+    except Exception:
+        return "GB"  # default fallback
 
 @router.post("/api/submit-kyc")
 async def submit_kyc(request: Request):
     db: Session = SessionLocal()
-
     try:
         payload = await request.json()
         token = payload.get("token")
@@ -27,19 +35,20 @@ async def submit_kyc(request: Request):
         customer_last_name = payload.get("customer_last_name")
         company_name = payload.get("company_name")
         trading_name = payload.get("trading_name")
-        organisation_type = payload.get("organisation_type")
+        organisation_type = int(payload.get("organisation_type", 0))
         limited_company_number = payload.get("limited_company_number")
         telephone_number = payload.get("phone_number")
         address_line_1 = payload.get("address_line_1")
         address_line_2 = payload.get("address_line_2")
         city = payload.get("city")
         postcode = payload.get("postcode")
-        country = payload.get("country")
+        country = convert_to_iso_country_code(payload.get("country", "GB"))
         members = payload.get("members", [])
 
         if not all([token, product_id, customer_email, company_name, organisation_type, address_line_1, city, postcode, country]):
             raise HTTPException(status_code=400, detail="Missing required fields.")
 
+        # Token check
         kyc_token = db.query(KycToken).filter(KycToken.token == token).first()
         if not kyc_token:
             raise HTTPException(status_code=404, detail="Invalid KYC token")
@@ -47,7 +56,6 @@ async def submit_kyc(request: Request):
             raise HTTPException(status_code=409, detail="This KYC token has already been used.")
 
         external_id = customer_email.split("@")[0] + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
-
         subscription = Subscription(
             external_id=external_id,
             product_id=product_id,
@@ -68,29 +76,28 @@ async def submit_kyc(request: Request):
         )
         db.add(subscription)
 
-        member_objects = []
+        hoxton_members = []
         for idx, m in enumerate(members):
-            if not m.get("email"):
-                raise HTTPException(status_code=400, detail=f"Missing email for member {idx+1}")
-            dob_iso = datetime.strptime(m["date_of_birth"], "%Y-%m-%d").isoformat() + "T00:00:00.000Z"
-            member = CompanyMember(
+            if not m.get("email") or not m.get("first_name") or not m.get("last_name") or not m.get("date_of_birth"):
+                raise HTTPException(status_code=400, detail=f"Missing required member field at index {idx}")
+            db.add(CompanyMember(
                 subscription_id=external_id,
-                first_name=m.get("first_name", ""),
+                first_name=m.get("first_name"),
                 middle_name=m.get("middle_name", ""),
-                last_name=m.get("last_name", ""),
+                last_name=m.get("last_name"),
                 phone_number=m.get("phone_number", ""),
                 email=m.get("email"),
-                date_of_birth=dob_iso,
-            )
-            db.add(member)
-            member_objects.append({
-                "first_name": m.get("first_name", ""),
+                date_of_birth=datetime.strptime(m.get("date_of_birth"), "%Y-%m-%d")
+            ))
+            hoxton_members.append({
+                "first_name": m.get("first_name"),
                 "middle_name": m.get("middle_name", ""),
-                "last_name": m.get("last_name", ""),
+                "last_name": m.get("last_name"),
                 "phone_number": m.get("phone_number", ""),
-                "date_of_birth": dob_iso
+                "date_of_birth": m.get("date_of_birth") + "T00:00:00.000Z"
             })
 
+        # Mark as submitted
         kyc_token.kyc_submitted = 1
         db.commit()
 
@@ -101,7 +108,7 @@ async def submit_kyc(request: Request):
                 "first_name": customer_first_name,
                 "middle_name": "",
                 "last_name": customer_last_name,
-                "email_address": customer_email,
+                "email_address": customer_email
             },
             "shipping_address": {
                 "shipping_address_line_1": address_line_1,
@@ -118,30 +125,23 @@ async def submit_kyc(request: Request):
                 "trading_name": trading_name,
                 "limited_company_number": limited_company_number,
                 "organisation_type": organisation_type,
-                "telephone_number": telephone_number,
+                "telephone_number": telephone_number
             },
-            "members": member_objects
+            "members": hoxton_members
         }
 
-        async with httpx.AsyncClient() as client:
-            auth_header = b64encode(f"{HOXTON_API_KEY}:".encode()).decode()
-            response = await client.post(
-                HOXTON_API_URL,
-                json=hoxton_payload,
-                headers={"Authorization": f"Basic {auth_header}"}
-            )
+        hoxton_response = requests.post(HOXTON_API_URL, auth=(HOXTON_API_TOKEN, ""), json=hoxton_payload)
+        if hoxton_response.status_code != 200:
+            print("❌ Hoxton API error:", hoxton_response.status_code, hoxton_response.text)
+            raise HTTPException(status_code=500, detail="Forwarding to Hoxton Mix failed")
 
-        if response.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"Error submitting to Hoxton Mix: {response.text}")
-
-        return {"message": "KYC submitted and forwarded successfully", "external_id": external_id}
+        return {"message": "KYC submitted and forwarded to Hoxton", "external_id": external_id}
 
     except Exception as e:
         db.rollback()
-        print("❌ Error submitting or forwarding KYC:", str(e))
+        print("❌ Exception during KYC submission:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
-
     finally:
         db.close()
 
