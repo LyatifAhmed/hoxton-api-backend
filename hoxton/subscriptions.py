@@ -63,14 +63,14 @@ def build_hoxton_payload(subscription, members):
             "organisation_type": subscription.organisation_type,
             "telephone_number": subscription.telephone_number or "",
         },
+        # NEW simplified structure for UBOs (per HMRC rule)
         "members": [
             {
                 "first_name": m.first_name,
-                "middle_name": m.middle_name or "",
                 "last_name": m.last_name,
-                "phone_number": m.phone_number or "",
-                "date_of_birth": m.date_of_birth.isoformat() if m.date_of_birth else None,
+                "email_address": m.email
             }
             for m in members
         ]
     }
+

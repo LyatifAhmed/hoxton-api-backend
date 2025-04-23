@@ -7,6 +7,7 @@ from datetime import datetime
 from hoxton.subscriptions import create_subscription, build_hoxton_payload
 import traceback
 import pycountry
+import re
 
 router = APIRouter()
 
@@ -23,7 +24,7 @@ async def submit_kyc(request: Request):
         customer_last_name = payload.get("customer_last_name")
 
         company_name = payload.get("company_name")
-        trading_name = payload.get("trading_name", "").strip() or payload.get("company_name")
+        trading_name = payload.get("trading_name", "").strip() or company_name
         organisation_type = payload.get("organisation_type")
         limited_company_number = payload.get("limited_company_number", "")
         telephone_number = payload.get("phone_number", "")
@@ -34,6 +35,17 @@ async def submit_kyc(request: Request):
         postcode = payload.get("postcode")
         raw_country = payload.get("country", "")
         members = payload.get("members", [])
+
+        # Email format validation
+        email_regex = r"[^@]+@[^@]+\.[^@]+"
+        if not re.match(email_regex, customer_email):
+            raise HTTPException(status_code=400, detail="Invalid customer email format")
+
+        # Validate member emails
+        for idx, m in enumerate(members):
+            member_email = m.get("email", "")
+            if not re.match(email_regex, member_email):
+                raise HTTPException(status_code=400, detail=f"Invalid email format for member {idx + 1}")
 
         # Convert organisation_type to integer
         try:
@@ -51,9 +63,12 @@ async def submit_kyc(request: Request):
         except Exception:
             raise HTTPException(status_code=400, detail=f"Invalid country: {raw_country}")
 
-        if not all([token, product_id, customer_email, customer_first_name, customer_last_name, company_name, organisation_type, address_line_1, city, postcode, country]):
+        # Required field check
+        if not all([token, product_id, customer_email, customer_first_name, customer_last_name,
+                    company_name, organisation_type, address_line_1, city, postcode, country]):
             raise HTTPException(status_code=400, detail="Missing required fields.")
 
+        # Token check
         kyc_token = db.query(KycToken).filter(KycToken.token == token).first()
         if not kyc_token:
             raise HTTPException(status_code=404, detail="Invalid KYC token")
@@ -62,6 +77,7 @@ async def submit_kyc(request: Request):
 
         external_id = customer_email.split("@")[0] + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
+        # Save subscription to DB
         subscription = Subscription(
             external_id=external_id,
             product_id=product_id,
@@ -78,14 +94,13 @@ async def submit_kyc(request: Request):
             company_trading_name=trading_name,
             company_number=limited_company_number,
             organisation_type=organisation_type,
-            telephone_number=telephone_number
+            telephone_number=telephone_number,
+            start_date=datetime.utcnow()
         )
         db.add(subscription)
 
+        # Save UBOs
         for idx, m in enumerate(members):
-            if not m.get("email"):
-                raise HTTPException(status_code=400, detail=f"Missing email for member {idx+1}")
-
             member = CompanyMember(
                 subscription_id=external_id,
                 first_name=m.get("first_name", ""),
@@ -100,15 +115,21 @@ async def submit_kyc(request: Request):
         kyc_token.kyc_submitted = 1
         db.commit()
 
-        # ✅ Fetch saved members as SQLAlchemy objects
+        # Reload saved members
         saved_members = db.query(CompanyMember).filter(CompanyMember.subscription_id == external_id).all()
 
-        # ✅ Build payload and send to Hoxton Mix
+        # Build and send to Hoxton
         hoxton_payload = build_hoxton_payload(subscription, saved_members)
         hoxton_response = await create_subscription(hoxton_payload)
-        print("✅ Hoxton Mix API Response:", hoxton_response)
-        print("Sending payload to Hoxton Mix:", hoxton_payload)
+        print("✅ Sending to Hoxton Mix:", hoxton_payload)
+        print("✅ Hoxton Mix Response:", hoxton_response)
 
+        if "error" in hoxton_response:
+            return JSONResponse(status_code=502, content={
+                "message": "KYC saved but failed to send to Hoxton Mix.",
+                "external_id": external_id,
+                "hoxton_error": hoxton_response
+            })
 
         return {
             "message": "KYC submitted and sent to Hoxton Mix",
@@ -125,6 +146,7 @@ async def submit_kyc(request: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         db.close()
+
 
 
 
