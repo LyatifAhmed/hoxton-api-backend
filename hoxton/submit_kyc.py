@@ -37,9 +37,12 @@ async def submit_kyc(request: Request):
         if not all([token, product_id, customer_email, company_name, organisation_type, address_line_1, city, postcode, country]):
             raise HTTPException(status_code=400, detail="Missing required fields.")
 
+        # ✅ Token validation
         kyc_token = db.query(KycToken).filter(KycToken.token == token).first()
         if not kyc_token:
             raise HTTPException(status_code=404, detail="Invalid KYC token")
+        if kyc_token.kyc_submitted:
+            raise HTTPException(status_code=409, detail="This KYC token has already been used.")
 
         external_id = customer_email.split("@")[0] + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
@@ -78,6 +81,7 @@ async def submit_kyc(request: Request):
             )
             db.add(member)
 
+        # ✅ Mark token as submitted
         kyc_token.kyc_submitted = 1
         db.commit()
         return {"message": "KYC submitted successfully", "external_id": external_id}
