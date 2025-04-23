@@ -1,8 +1,7 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, DateTime
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .base import Base
-
 
 
 class KycToken(Base):
@@ -15,7 +14,8 @@ class KycToken(Base):
     plan_name = Column(String)
     expires_at = Column(DateTime)
     kyc_submitted = Column(Integer, default=0)
-    session_id = Column(String, index=True, nullable=True)  # ✅ Add this line
+    session_id = Column(String, index=True, nullable=True)
+
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
@@ -44,10 +44,9 @@ class Subscription(Base):
     start_date = Column(DateTime, default=datetime.utcnow)
 
     review_status = Column(String, default="pending")
-    rejection_reason = Column(Text, nullable=True)        # 📝 Optional internal notes
+    rejection_reason = Column(Text, nullable=True)
 
     members = relationship("CompanyMember", back_populates="subscription")
-
 
 
 class CompanyMember(Base):
@@ -55,11 +54,12 @@ class CompanyMember(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     subscription_id = Column(String, ForeignKey("subscriptions.external_id"))
-    
+
     first_name = Column(String)
     middle_name = Column(String)
     last_name = Column(String)
     phone_number = Column(String)
+    email = Column(String)
     date_of_birth = Column(DateTime)
 
     subscription = relationship("Subscription", back_populates="members")
@@ -82,8 +82,6 @@ class ScannedMail(Base):
     summary = Column(String)
     industry = Column(String)
 
-    categories = Column(String)         # Stored as comma-separated string
-    sub_categories = Column(String)     # Stored as comma-separated string
+    categories = Column(String)         # Comma-separated
+    sub_categories = Column(String)     # Comma-separated
     key_information = Column(Text)      # Store JSON string if needed
-
-
