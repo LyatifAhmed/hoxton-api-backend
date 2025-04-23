@@ -19,6 +19,7 @@ async def submit_kyc(request: Request):
 
     try:
         payload = await request.json()
+        print("✅ Raw Payload Received:", payload)
         token = payload.get("token")
         product_id = payload.get("product_id")
         customer_email = payload.get("customer_email")
