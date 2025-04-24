@@ -134,9 +134,7 @@ async def submit_kyc(request: Request):
                 "hoxton_error": hoxton_response
             })
 
-        # ✅ Send notification to customer
-        await send_customer_verification_notice(customer_email, company_name)
-
+        
         return {
             "message": "KYC submitted and sent to Hoxton Mix",
             "external_id": external_id,
