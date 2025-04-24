@@ -35,7 +35,7 @@ Thank you for subscribing to BetaOffice. To complete your account setup, please 
 
 This link will expire in 3 days.
 
-If you need help, reply to this email.
+If you have any questions, feel free to email **support@betaoffice.uk**.
 
 Best regards,  
 BetaOffice Team
@@ -107,7 +107,7 @@ This email will include a personal identity verification link for each listed bu
 
 📩 Please check your inbox (and spam folder).
 
-If you have any questions, feel free to reply to this email.
+If you have any questions, feel free to email **support@betaoffice.uk**.
 
 Best regards,  
 BetaOffice Team
