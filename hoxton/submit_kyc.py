@@ -18,6 +18,7 @@ async def submit_kyc(request: Request):
 
     try:
         payload = await request.json()
+        payload = {k: v.strip() if isinstance(v, str) else v for k, v in payload.items()}
         token = payload.get("token")
         product_id = payload.get("product_id")
         customer_email = payload.get("email")
@@ -38,7 +39,7 @@ async def submit_kyc(request: Request):
         members = payload.get("members", [])
 
         # Email format validation
-        email_regex = r"[^@]+@[^@]+\\.[^@]+"
+        email_regex = r"[^@]+@[^@]+\.[^@]+"
         if not re.match(email_regex, customer_email):
             raise HTTPException(status_code=400, detail="Invalid customer email format")
 
@@ -115,6 +116,9 @@ async def submit_kyc(request: Request):
 
         kyc_token.kyc_submitted = 1
         db.commit()
+        print("✅ Owners to be contacted:")
+        for m in members:
+            print("-", m.get("email"))
 
         # Reload saved members
         saved_members = db.query(CompanyMember).filter(CompanyMember.subscription_id == external_id).all()
