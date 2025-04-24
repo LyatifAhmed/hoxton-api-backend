@@ -1,6 +1,6 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from .base import Base
 from .models import KycToken  
 # ✅ Use DATABASE_URL from environment (Render will provide this)
@@ -24,6 +24,11 @@ def init_db():
     Base.metadata.create_all(bind=engine)  # Recreate tables from models
     print("✅ Recreated tables")
 
-
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 

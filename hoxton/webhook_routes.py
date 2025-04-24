@@ -12,38 +12,42 @@ router = APIRouter()
 async def scanned_mail_webhook(request: Request, db: Session = Depends(get_db)):
     try:
         payload = await request.json()
+
+        # Extract basic fields (ensure your webhook sends these!)
         external_id = payload.get("external_id")
+        url = payload.get("url")
+        sender_name = payload.get("sender_name", "")
+        document_title = payload.get("document_title", "")
+        summary = payload.get("summary", "")
+        url_envelope_front = payload.get("url_envelope_front")
+        url_envelope_back = payload.get("url_envelope_back")
+        company_name = payload.get("company_name")
+        received_at = payload.get("received_at")
 
         if not external_id:
             raise HTTPException(status_code=400, detail="Missing external_id")
 
-        # Save scanned mail record
-        scanned_mail = ScannedMail(
-            id=str(uuid.uuid4()),
-            external_id=external_id,
-            sender_name=payload.get("sender_name"),
-            document_title=payload.get("document_title"),
-            summary=payload.get("summary"),
-            url=payload.get("url"),
-            url_envelope_front=payload.get("url_envelope_front"),
-            url_envelope_back=payload.get("url_envelope_back"),
-            received_at=datetime.utcnow()
+        mail = ScannedMail(
+            id=external_id,
+            sender_name=sender_name,
+            document_title=document_title,
+            summary=summary,
+            url=url,
+            url_envelope_front=url_envelope_front,
+            url_envelope_back=url_envelope_back,
+            company_name=company_name,
+            received_at=received_at,
         )
-        db.add(scanned_mail)
+
+        db.add(mail)
         db.commit()
 
-        # Notify customer via email
-        subscription = db.query(Subscription).filter(Subscription.external_id == external_id).first()
-        if subscription:
-            await send_scanned_mail_notification(
-                recipient_email=subscription.customer_email,
-                company_name=subscription.company_name,
-                sender_name=payload.get("sender_name", ""),
-                document_title=payload.get("document_title", "")
-            )
+        # 🚀 Send email notification to the customer (modify email logic accordingly)
+        await send_mail_notification(company_name, document_title, url)
 
-        return {"message": "Scanned mail received and saved."}
+        return {"message": "Scanned mail saved and notification sent."}
 
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
+        print("❌ Webhook processing failed:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Webhook processing failed")
