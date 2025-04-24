@@ -43,9 +43,6 @@ class Subscription(Base):
 
     start_date = Column(DateTime, default=datetime.utcnow)
 
-    review_status = Column(String, default="pending")
-    rejection_reason = Column(Text, nullable=True)
-
     members = relationship("CompanyMember", back_populates="subscription")
 
 
@@ -76,7 +73,7 @@ class ScannedMail(Base):
     file_name = Column(String)
     created_at = Column(DateTime)
     company_name = Column(String)
-    
+
     sender_name = Column(String)
     document_title = Column(String)
     reference_number = Column(String)
