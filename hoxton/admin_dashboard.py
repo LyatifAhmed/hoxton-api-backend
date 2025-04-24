@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from hoxton.client import get_hoxton_subscription
 import secrets
 import os
 
@@ -25,16 +26,23 @@ def get_submissions(authenticated: bool = Depends(verify_admin)):
     db: Session = SessionLocal()
     try:
         submissions = db.query(Subscription).all()
-        return [
-            {
+        result = []
+        for s in submissions:
+            hoxton_status = "UNKNOWN"
+            try:
+                hoxton_data = get_hoxton_subscription(s.external_id)
+                hoxton_status = hoxton_data.get("subscription", {}).get("status", "UNKNOWN")
+            except Exception as e:
+                print(f"⚠️ Could not fetch Hoxton status for {s.external_id}: {e}")
+
+            result.append({
                 "external_id": s.external_id,
                 "company_name": s.company_name,
                 "customer_email": s.customer_email,
                 "start_date": s.start_date.isoformat() if s.start_date else None,
-                "reviewed": False,  # We'll track this later
-                "approved": False   # Optional future field
-            }
-            for s in submissions
-        ]
+                "hoxton_status": hoxton_status,
+                "review_status": s.review_status if hasattr(s, "review_status") else "N/A"
+            })
+        return result
     finally:
         db.close()

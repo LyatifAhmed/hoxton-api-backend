@@ -5,6 +5,7 @@ from scanned_mail.database import SessionLocal
 from scanned_mail.models import Subscription, CompanyMember, KycToken
 from datetime import datetime
 from hoxton.subscriptions import create_subscription, build_hoxton_payload
+from hoxton.mail import send_customer_verification_notice
 import traceback
 import pycountry
 import re
@@ -37,7 +38,7 @@ async def submit_kyc(request: Request):
         members = payload.get("members", [])
 
         # Email format validation
-        email_regex = r"[^@]+@[^@]+\.[^@]+"
+        email_regex = r"[^@]+@[^@]+\\.[^@]+"
         if not re.match(email_regex, customer_email):
             raise HTTPException(status_code=400, detail="Invalid customer email format")
 
@@ -123,6 +124,8 @@ async def submit_kyc(request: Request):
         hoxton_response = await create_subscription(hoxton_payload)
         print("✅ Sending to Hoxton Mix:", hoxton_payload)
         print("✅ Hoxton Mix Response:", hoxton_response)
+        await send_customer_verification_notice(customer_email, company_name)
+
 
         if "error" in hoxton_response:
             return JSONResponse(status_code=502, content={
@@ -130,6 +133,9 @@ async def submit_kyc(request: Request):
                 "external_id": external_id,
                 "hoxton_error": hoxton_response
             })
+
+        # ✅ Send notification to customer
+        await send_customer_verification_notice(customer_email, company_name)
 
         return {
             "message": "KYC submitted and sent to Hoxton Mix",
@@ -146,6 +152,7 @@ async def submit_kyc(request: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         db.close()
+
 
 
 

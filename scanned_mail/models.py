@@ -75,7 +75,8 @@ class ScannedMail(Base):
     url_envelope_back = Column(Text)
     file_name = Column(String)
     created_at = Column(DateTime)
-
+    company_name = Column(String)
+    
     sender_name = Column(String)
     document_title = Column(String)
     reference_number = Column(String)

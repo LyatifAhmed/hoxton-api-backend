@@ -89,3 +89,40 @@ BetaOffice Team
     except Exception as e:
         print(f"❌ Failed to notify {recipient_email}: {e}")
         log_email_error(e, recipient_email)
+
+async def send_customer_verification_notice(recipient_email: str, company_name: str):
+    msg = EmailMessage()
+    msg["From"] = SMTP_USERNAME
+    msg["To"] = recipient_email
+    msg["Subject"] = "Next Step: Identity Verification"
+
+    msg.set_content(f"""
+Hello,
+
+Thanks for submitting your company details for {company_name}.
+
+🎯 What's next?  
+You will soon receive a secure email from our verification partner **Hoxton Mix**.  
+This email will include a personal identity verification link for each listed business owner.
+
+📩 Please check your inbox (and spam folder).
+
+If you have any questions, feel free to reply to this email.
+
+Best regards,  
+BetaOffice Team
+""")
+
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=SMTP_SERVER,
+            port=SMTP_PORT,
+            username=SMTP_USERNAME,
+            password=SMTP_PASSWORD,
+            start_tls=True,
+        )
+        print(f"✅ Verification notice sent to {recipient_email}")
+    except Exception as e:
+        print(f"❌ Failed to notify {recipient_email}: {e}")
+        log_email_error(e, recipient_email)
