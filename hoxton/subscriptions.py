@@ -37,6 +37,18 @@ async def create_subscription(data: dict):
 
 
 def build_hoxton_payload(subscription, members):
+    # Build company block with optional telephone_number
+    company = {
+        "name": subscription.company_name,
+        "trading_name": subscription.company_trading_name or subscription.company_name,
+        "limited_company_number": subscription.company_number or "",
+        "organisation_type": subscription.organisation_type,
+    }
+
+    # Only include telephone_number if it's non-empty
+    if subscription.telephone_number and subscription.telephone_number.strip():
+        company["telephone_number"] = subscription.telephone_number.strip()
+
     return {
         "external_id": subscription.external_id,
         "product_id": subscription.product_id,
@@ -56,14 +68,7 @@ def build_hoxton_payload(subscription, members):
         "subscription": {
             "start_date": subscription.start_date.isoformat(),
         },
-        "company": {
-            "name": subscription.company_name,
-            "trading_name": subscription.company_trading_name or subscription.company_name,
-            "limited_company_number": subscription.company_number or "",
-            "organisation_type": subscription.organisation_type,
-            "telephone_number": subscription.telephone_number or "",
-        },
-        # NEW simplified structure for UBOs (per HMRC rule)
+        "company": company,
         "members": [
             {
                 "first_name": m.first_name,
@@ -73,4 +78,3 @@ def build_hoxton_payload(subscription, members):
             for m in members
         ]
     }
-

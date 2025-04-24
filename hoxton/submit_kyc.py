@@ -29,7 +29,10 @@ async def submit_kyc(request: Request):
         trading_name = payload.get("trading_name", "").strip() or company_name
         organisation_type = payload.get("organisation_type")
         limited_company_number = payload.get("limited_company_number", "")
-        telephone_number = payload.get("phone_number", "")
+        telephone_number = payload.get("phone_number", "").strip()
+        if not telephone_number:
+            telephone_number = None  # Make it clear this should not be included if blank
+
 
         address_line_1 = payload.get("address_line_1")
         address_line_2 = payload.get("address_line_2", "")
@@ -96,7 +99,7 @@ async def submit_kyc(request: Request):
             company_trading_name=trading_name,
             company_number=limited_company_number,
             organisation_type=organisation_type,
-            telephone_number=telephone_number,
+            telephone_number=telephone_number or None,  # Optional field
             start_date=datetime.utcnow()
         )
         db.add(subscription)
