@@ -26,9 +26,6 @@ from hoxton.create_token import router as token_router
 from hoxton.submit_kyc import router as submit_kyc_router
 from hoxton.mail import send_kyc_email
 import subprocess
-from hoxton.admin_dashboard import router as admin_dashboard_router
-from hoxton.admin_review import router as admin_review_router
-from hoxton.admin_routes import router as admin_router 
 from hoxton.webhook_routes import router as webhook_router
 subprocess.call(["alembic", "upgrade", "head"])
 from sqlalchemy.orm import Session
@@ -67,9 +64,6 @@ app.add_middleware(
 )
 app.include_router(token_router)
 app.include_router(submit_kyc_router)
-app.include_router(admin_router)
-app.include_router(admin_review_router)
-app.include_router(admin_dashboard_router)
 app.include_router(webhook_router)
 
 security = HTTPBasic()
