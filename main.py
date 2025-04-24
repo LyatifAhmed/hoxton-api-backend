@@ -29,6 +29,7 @@ import subprocess
 from hoxton.admin_dashboard import router as admin_dashboard_router
 from hoxton.admin_review import router as admin_review_router
 from hoxton.admin_routes import router as admin_router 
+from hoxton.webhook_routes import router as webhook_router
 subprocess.call(["alembic", "upgrade", "head"])
 from sqlalchemy.orm import Session
 
@@ -69,6 +70,7 @@ app.include_router(submit_kyc_router)
 app.include_router(admin_router)
 app.include_router(admin_review_router)
 app.include_router(admin_dashboard_router)
+app.include_router(webhook_router)
 
 security = HTTPBasic()
 
