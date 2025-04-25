@@ -136,10 +136,63 @@ async def receive_webhook(
     finally:
         db.close()
 
-# ⛔️ Deprecated Stripe webhook fallback (if needed)
 @app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
-    return {"status": "deprecated"}
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Webhook signature verification failed")
+
+    print("✅ Stripe webhook event received")
+    print("Event type:", event["type"])
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        metadata = session.get("metadata", {})
+        external_id = metadata.get("external_id")
+
+        db: Session = SessionLocal()
+        try:
+            # ✅ Get subscription
+            subscription = db.query(Subscription).filter_by(external_id=external_id).first()
+            if not subscription:
+                raise HTTPException(status_code=404, detail="Subscription not found")
+
+            # ✅ Prevent duplicates
+            if subscription.review_status == "SUBMITTED":
+                return {"message": "Already submitted"}
+
+            # ✅ Get company members
+            members = db.query(CompanyMember).filter_by(subscription_id=external_id).all()
+
+            # ✅ Send to Hoxton Mix
+            from hoxton.subscriptions import build_hoxton_payload, create_subscription
+            payload = build_hoxton_payload(subscription, members)
+            response = await create_subscription(payload)
+
+            # ✅ Update status
+            subscription.review_status = "SUBMITTED"
+            db.commit()
+
+            # ✅ Send verification notice
+            from hoxton.mail import send_customer_verification_notice
+            await send_customer_verification_notice(subscription.customer_email, subscription.company_name)
+
+            return {"message": "Submitted to Hoxton Mix", "external_id": external_id}
+
+        except Exception as e:
+            db.rollback()
+            print("❌ Error in Stripe webhook:", str(e))
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail="Webhook processing error")
+        finally:
+            db.close()
+
+    return {"status": "ok"}
+
 
 # Attach scanned mail webhook routes
 app.include_router(webhook_router)
