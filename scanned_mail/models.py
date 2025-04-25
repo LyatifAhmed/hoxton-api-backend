@@ -26,6 +26,7 @@ class Subscription(Base):
     customer_middle_name = Column(String)
     customer_last_name = Column(String)
     customer_email = Column(String)
+    review_status = Column(String, default="PENDING")
 
     shipping_line_1 = Column(String)
     shipping_line_2 = Column(String)
