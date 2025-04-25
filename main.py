@@ -1,60 +1,47 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Path, UploadFile, Form, Body
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Header
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel
-from typing import List, Optional
-import requests
-import sqlite3
-import secrets
-import os
-from dotenv import load_dotenv
-from requests.auth import HTTPBasicAuth
-import base64
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List, Optional
 import stripe
 from uuid import uuid4
-from datetime import datetime, timedelta
-from fastapi.staticfiles import StaticFiles
-import aiosmtplib
-import json
-from email.message import EmailMessage
-from hoxton.mail import send_kyc_email
-from scanned_mail.database import init_db, SessionLocal
-from scanned_mail.models import KycToken, Subscription, CompanyMember, ScannedMail
-from contextlib import asynccontextmanager
-from hoxton.create_token import router as token_router
-from hoxton.submit_kyc import router as submit_kyc_router
-from hoxton.mail import send_kyc_email
-import subprocess
-from hoxton.webhook_routes import router as webhook_router
-subprocess.call(["alembic", "upgrade", "head"])
+from datetime import datetime
 from sqlalchemy.orm import Session
+import secrets
+import traceback
+import os
+import requests
+from dotenv import load_dotenv
+from requests.auth import HTTPBasicAuth
+from contextlib import asynccontextmanager
 
+# Local modules
+from scanned_mail.database import init_db, SessionLocal
+from scanned_mail.models import Subscription, CompanyMember, ScannedMail
+from hoxton.mail import send_customer_verification_notice
+from hoxton.subscriptions import create_subscription, build_hoxton_payload
+from hoxton.webhook_routes import router as webhook_router
 
+# Load environment variables
 load_dotenv()
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
+BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER")
+BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
 
+# Lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Initializing DB at startup...")
     init_db()
-
-    # ✅ Ensure 'uploaded_files' folder exists
-    if not os.path.exists("uploaded_files"):
-        os.makedirs("uploaded_files")
-        print("📁 Created 'uploaded_files' folder")
-    else:
-        print("📁 'uploaded_files' folder already exists")
-
     yield
-
 
 app = FastAPI(lifespan=lifespan)
 
-
-
+# Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://betaoffice.uk"],
@@ -62,269 +49,98 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(token_router)
-app.include_router(submit_kyc_router)
-app.include_router(webhook_router)
 
+# Basic Auth check
 security = HTTPBasic()
-
-HOXTON_API_URL = os.getenv("HOXTON_API_URL")
-HOXTON_API_KEY = os.getenv("HOXTON_API_KEY")
-BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER")
-BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
-
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-
-class SubscriptionSection(BaseModel):
-    start_date: Optional[str]
-
-class Customer(BaseModel):
-    first_name: str
-    middle_name: Optional[str]
-    last_name: str
-    email_address: str
-
-class ShippingAddress(BaseModel):
-    shipping_address_line_1: str
-    shipping_address_line_2: Optional[str] = None
-    shipping_address_line_3: Optional[str] = None
-    shipping_address_city: str
-    shipping_address_postcode: str
-    shipping_address_state: Optional[str] = None
-    shipping_address_country: str
-
-class Company(BaseModel):
-    name: str
-    trading_name: Optional[str] = None
-    limited_company_number: Optional[str] = None
-    abn_number: Optional[str] = None
-    acn_number: Optional[str] = None
-    organisation_type: int
-    telephone_number: str
-
-class Member(BaseModel):
-    first_name: str
-    middle_name: Optional[str] = None
-    last_name: str
-    phone_number: str
-    date_of_birth: str
-
-class SubscriptionRequest(BaseModel):
-    external_id: str
-    product_id: Optional[int] = None
-    customer: Customer
-    shipping_address: ShippingAddress
-    subscription: Optional[SubscriptionSection]
-    company: Company
-    members: List[Member]
-
 def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    if not (secrets.compare_digest(credentials.username, BASIC_AUTH_USER) and 
+    if not (secrets.compare_digest(credentials.username, BASIC_AUTH_USER) and
             secrets.compare_digest(credentials.password, BASIC_AUTH_PASS)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-
+# ✅ Stripe Webhook
 @app.post("/webhook")
-async def receive_webhook(request: Request, credentials: HTTPBasicCredentials = Depends(verify_basic_auth)):
-    payload = await request.json()
+async def receive_webhook(
+    request: Request,
+    credentials: str = Depends(verify_basic_auth),
+    stripe_signature: str = Header(None)
+):
     db: Session = SessionLocal()
-
     try:
-        scanned = ScannedMail(
-            external_id=payload.get("external_id"),
-            sender_name=payload.get("sender_name"),
-            document_title=payload.get("document_title"),
-            file_name=payload.get("file_names", [""])[0] if isinstance(payload.get("file_names"), list) else "",
-            url=payload.get("document_urls", [""])[0] if isinstance(payload.get("document_urls"), list) else "",
-            url_envelope_front=payload.get("envelope_front_url", ""),
-            url_envelope_back=payload.get("envelope_back_url", ""),
-            reference_number=payload.get("reference_number"),
-            summary=payload.get("summary"),
-            industry=payload.get("industry"),
-            categories=",".join(payload.get("categories", [])),
-            sub_categories=",".join(payload.get("sub_categories", [])),
-            key_information=str(payload.get("key_information", {})),
-            created_at=datetime.utcnow()
-        )
+        raw_body = await request.body()
+        json_body = await request.json()
 
-        db.add(scanned)
-        db.commit()
+        # ✅ Handle Stripe Payment Confirmation
+        if json_body.get("type") == "checkout.session.completed":
+            session = json_body["data"]["object"]
+            customer_email = session.get("customer_email")
 
-        return {"message": "✅ Scanned mail saved successfully."}
-    
+            if not customer_email:
+                raise HTTPException(status_code=400, detail="Missing customer email in Stripe event.")
+
+            subscription = db.query(Subscription).filter_by(customer_email=customer_email).first()
+            if not subscription:
+                raise HTTPException(status_code=404, detail="No matching KYC data found.")
+
+            if subscription.review_status == "SUBMITTED":
+                return {"message": "Already submitted to Hoxton."}
+
+            # ✅ Send to Hoxton
+            members = db.query(CompanyMember).filter_by(subscription_id=subscription.external_id).all()
+            hoxton_payload = build_hoxton_payload(subscription, members)
+            hoxton_response = await create_subscription(hoxton_payload)
+
+            subscription.review_status = "SUBMITTED"
+            db.commit()
+
+            # ✅ Confirmation Email
+            await send_customer_verification_notice(subscription.customer_email, subscription.company_name)
+
+            return {
+                "message": "Submitted to Hoxton Mix",
+                "external_id": subscription.external_id,
+                "hoxton_response": hoxton_response
+            }
+
+        # ✅ Handle Scanned Mail
+        elif json_body.get("external_id"):
+            scanned = ScannedMail(
+                external_id=json_body.get("external_id"),
+                sender_name=json_body.get("sender_name"),
+                document_title=json_body.get("document_title"),
+                file_name=json_body.get("file_names", [""])[0] if isinstance(json_body.get("file_names"), list) else "",
+                url=json_body.get("document_urls", [""])[0] if isinstance(json_body.get("document_urls"), list) else "",
+                url_envelope_front=json_body.get("envelope_front_url", ""),
+                url_envelope_back=json_body.get("envelope_back_url", ""),
+                reference_number=json_body.get("reference_number"),
+                summary=json_body.get("summary"),
+                industry=json_body.get("industry"),
+                categories=",".join(json_body.get("categories", [])),
+                sub_categories=",".join(json_body.get("sub_categories", [])),
+                key_information=str(json_body.get("key_information", {})),
+                created_at=datetime.utcnow()
+            )
+
+            db.add(scanned)
+            db.commit()
+
+            return {"message": "✅ Scanned mail saved successfully."}
+
+        else:
+            return JSONResponse(status_code=400, content={"message": "Unhandled webhook payload"})
+
     except Exception as e:
-        print("❌ Stripe webhook processing failed:", str(e))
-        import traceback
+        db.rollback()
+        print("❌ Webhook processing failed:", str(e))
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Stripe processing error")
-
+        return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         db.close()
 
-
+# ⛔️ Deprecated Stripe webhook fallback (if needed)
 @app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature")
+    return {"status": "deprecated"}
 
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Webhook signature verification failed")
-
-    print("✅ Stripe webhook event received")
-    print("Event type:", event['type'])
-
-    if event["type"] == "checkout.session.completed":
-        session_id = event["data"]["object"]["id"]
-
-        # 🔁 Retrieve full session with expanded customer
-        full_session = stripe.checkout.Session.retrieve(
-            session_id,
-            expand=["customer", "customer_details"]
-        )
-
-        # ✅ Try to get email from expanded session
-        email = (
-            full_session.get("customer_details", {}).get("email") or
-            full_session.get("customer", {}).get("email")
-        )
-        metadata = full_session.get("metadata", {})
-        price_id = metadata.get("price_id")
-        session_id = full_session["id"]
-
-        print("✅ Session Email:", email)
-        print("Session Metadata:", metadata)
-        print("Price ID:", price_id)
-        print("Session ID:", session_id)
-
-        plan_map = {
-            "price_1RBKvBACVQjWBIYus7IRSyEt": ("Monthly Plan", 2736),
-            "price_1RBKvlACVQjWBIYuVs4Of01v": ("Annual Plan", 2737)
-        }
-
-        if price_id in plan_map and email:
-            plan_name, product_id = plan_map[price_id]
-
-            token = str(uuid4())
-            expires_at = datetime.utcnow() + timedelta(days=3)
-
-            db = SessionLocal()
-            db.query(KycToken).filter(KycToken.email == email, KycToken.kyc_submitted == 0).delete()
-            db.add(KycToken(
-                token=token,
-                date_created=datetime.utcnow(),
-                email=email,
-                product_id=product_id,
-                plan_name=plan_name,
-                expires_at=expires_at,
-                kyc_submitted=0,
-                session_id=session_id
-            ))
-            db.commit()
-            print(f"✅ Token saved to DB: {token}")
-            tokens = db.query(KycToken).all()
-            print("📦 Current tokens in DB:", [t.token for t in tokens])
-
-            db.close()
-
-            print(f"📩 Attempting to send email to {email} with token: {token}")
-            await send_kyc_email(email, token)  # ✅ await added here
-            print(f"✅ KYC email sent to {email}")
-        else:
-            print(f"⚠️ Missing or unrecognized price_id or email. price_id={price_id}, email={email}")
-    else:
-        print("⚠️ Webhook event was not checkout.session.completed")
-
-    return {"status": "ok"}
-
-@app.post("/api/create-subscription")
-def create_subscription(data: SubscriptionRequest):
-    print("🔁 Preparing subscription data for Hoxton Mix...")
-
-    try:
-        # Convert to dict and begin transforming
-        payload = data.dict()
-
-        # Generate unique external_id
-        external_id = str(uuid4())
-        payload["external_id"] = external_id
-
-        # Ensure start_date is ISO 8601 formatted
-        payload.setdefault("subscription", {})
-        payload["subscription"]["start_date"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        # Validate country is already ISO 2-letter (assumed correct from frontend)
-        country_code = payload["shipping_address"].get("shipping_address_country", "")
-        if len(country_code) != 2:
-            raise HTTPException(status_code=400, detail=f"Invalid 2-letter country code: {country_code}")
-
-        # Format all member date_of_birth fields
-        for m in payload.get("members", []):
-            if "date_of_birth" in m and "T" not in m["date_of_birth"]:
-                m["date_of_birth"] += "T00:00:00Z"
-
-        print("📦 Outgoing HoxtonMix Payload:")
-        print(payload)
-
-        # Make the POST request
-        response = requests.post(
-            HOXTON_API_URL,
-            json=payload,
-            auth=HTTPBasicAuth(HOXTON_API_KEY, ''),
-            headers={"Content-Type": "application/json"}
-        )
-
-        try:
-            result = response.json()
-        except ValueError:
-            result = response.text
-
-        if response.status_code in (200, 201):
-            # Mark token as submitted
-            db = SessionLocal()
-            db.query(KycToken).filter(KycToken.email == data.customer.email_address).update({
-                "kyc_submitted": 1
-            })
-            db.commit()
-            db.close()
-
-            return {"message": "Subscription created.", "external_id": external_id, "data": result}
-        else:
-            raise HTTPException(status_code=response.status_code, detail=result)
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Subscription creation error: {str(e)}")
-    
-@app.post("/api/update-subscription/{external_id}")
-def update_subscription(external_id: str, data: SubscriptionRequest):
-    url = f"https://api.hoxtonmix.com/api/v2/subscription/{external_id}"
-
-    try:
-        response = requests.post(
-            url,
-            auth=HTTPBasicAuth(HOXTON_API_KEY, ""),
-            json=data.dict(),
-            headers={"Content-Type": "application/json"}
-        )
-
-        if response.status_code == 200:
-            try:
-                result = response.json()
-            except ValueError:
-                result = response.text
-            return {"message": "Subscription updated successfully", "data": result}
-        else:
-            print("Update failed:", response.text)
-            raise HTTPException(status_code=response.status_code, detail=response.text)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
-
-    
+# Attach scanned mail webhook routes
+app.include_router(webhook_router)
 
