@@ -55,9 +55,10 @@ async def save_kyc_temp(request: Request):
             raise HTTPException(status_code=400, detail=f"Invalid country: {raw_country}")
 
         # Check if already exists
-        existing = db.query(Subscription).filter_by(customer_email=customer_email).first()
-        if existing:
-            raise HTTPException(status_code=409, detail="This email is already linked to a business.")
+        # 🚫 Temporarily disabled duplicate email check during testing
+        #existing = db.query(Subscription).filter_by(customer_email=customer_email).first()
+        #if existing:
+        #    raise HTTPException(status_code=409, detail="This email is already linked to a business.")
 
         # Generate external_id
         external_id = customer_email.split("@")[0] + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -147,8 +148,9 @@ async def submit_kyc(request: Request):
         email_regex = r"[^@]+@[^@]+\.[^@]+"
         if not re.match(email_regex, customer_email):
             raise HTTPException(status_code=400, detail="Invalid customer email format")
-        if db.query(Subscription).filter_by(customer_email=customer_email).first():
-            raise HTTPException(status_code=409, detail="This email is already linked to a business.")
+        # 🚫 Temporarily allow duplicate emails for testing
+        #if db.query(Subscription).filter_by(customer_email=customer_email).first():
+        #    raise HTTPException(status_code=409, detail="This email is already linked to a business.")
 
         for idx, m in enumerate(members):
             member_email = m.get("email", "")
