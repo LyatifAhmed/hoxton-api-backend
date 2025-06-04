@@ -22,6 +22,9 @@ from hoxton.mail import send_customer_verification_notice
 from hoxton.subscriptions import create_subscription, build_hoxton_payload
 from hoxton.webhook_routes import router as webhook_router
 from hoxton.submit_kyc import router as kyc_router
+from hoxton.customer import router as customer_router
+from hoxton.kyc_routes import router as kyc_routes
+
 # Load environment variables
 load_dotenv()
 
@@ -196,3 +199,4 @@ async def stripe_webhook(request: Request):
 # Attach scanned mail webhook routes
 app.include_router(webhook_router)
 app.include_router(kyc_router)
+app.include_router(customer_router)
