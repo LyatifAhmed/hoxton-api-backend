@@ -15,7 +15,6 @@ import requests
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
 from contextlib import asynccontextmanager
-
 # Local modules
 from scanned_mail.database import init_db, SessionLocal
 from scanned_mail.models import Subscription, CompanyMember, ScannedMail
