@@ -1,14 +1,43 @@
 import os
-import requests
 import httpx
+from fastapi import APIRouter, HTTPException
+from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
-load_dotenv()  # Loads variables from .env
+from scanned_mail.database import SessionLocal
+from scanned_mail.models import Subscription, ScannedMail
 
-API_BASE_URL = os.getenv("HOXTON_API_URL")  # Should be: https://api.hoxtonmix.com/v2
-API_KEY = os.getenv("HOXTON_API_KEY")  # Your API key as username in Basic Auth
+load_dotenv()
+
+API_BASE_URL = os.getenv("HOXTON_API_URL")  # Örn: https://api.hoxtonmix.com/v2
+API_KEY = os.getenv("HOXTON_API_KEY")       # Basic Auth için sadece username olarak kullanılır
+
+router = APIRouter()
+
+# ✅ GET: /subscription?external_id=... → Abonelik detaylarını döner
+@router.get("/subscription")
+def get_subscription(external_id: str):
+    db: Session = SessionLocal()
+    try:
+        subscription = db.query(Subscription).filter_by(external_id=external_id).first()
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+        return subscription.__dict__
+    finally:
+        db.close()
+
+# ✅ GET: /mail?external_id=... → Taratılmış mailleri döner
+@router.get("/mail")
+def get_mail_items(external_id: str):
+    db: Session = SessionLocal()
+    try:
+        mail_items = db.query(ScannedMail).filter_by(external_id=external_id).order_by(ScannedMail.created_at.desc()).all()
+        return [item.__dict__ for item in mail_items]
+    finally:
+        db.close()
 
 
+# ✅ POST: Hoxton API'ye abonelik gönderme
 async def create_subscription(data: dict):
     url = f"{API_BASE_URL}/subscription"
 
@@ -17,7 +46,7 @@ async def create_subscription(data: dict):
             response = await client.post(
                 url,
                 json=data,
-                auth=(API_KEY, "")  # Basic Auth: API key as username, empty password
+                auth=(API_KEY, "")  # Basic Auth: API_KEY username, password boş
             )
             response.raise_for_status()
             return response.json() if response.content else {"message": "Subscription created successfully."}
@@ -36,8 +65,8 @@ async def create_subscription(data: dict):
         }
 
 
+# ✅ Payload inşa edici
 def build_hoxton_payload(subscription, members):
-    # Build company block with optional telephone_number
     company = {
         "name": subscription.company_name,
         "trading_name": subscription.company_trading_name or subscription.company_name,
@@ -45,7 +74,6 @@ def build_hoxton_payload(subscription, members):
         "organisation_type": subscription.organisation_type,
     }
 
-    # Only include telephone_number if it's non-empty
     if subscription.telephone_number and subscription.telephone_number.strip():
         company["telephone_number"] = subscription.telephone_number.strip()
 

@@ -23,6 +23,8 @@ from hoxton.subscriptions import create_subscription, build_hoxton_payload
 from hoxton.webhook_routes import router as webhook_router
 from hoxton.submit_kyc import router as kyc_router
 from hoxton.customer import router as customer_router
+from hoxton.subscriptions import router as subscriptions_router
+
 
 # Load environment variables
 load_dotenv()
@@ -199,3 +201,4 @@ async def stripe_webhook(request: Request):
 app.include_router(webhook_router)
 app.include_router(kyc_router)
 app.include_router(customer_router)
+app.include_router(subscriptions_router)
