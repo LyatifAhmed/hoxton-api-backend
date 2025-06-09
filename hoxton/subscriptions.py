@@ -1,6 +1,6 @@
 import os
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException ,requests
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -13,6 +13,32 @@ API_BASE_URL = os.getenv("HOXTON_API_URL")  # Örn: https://api.hoxtonmix.com/v2
 API_KEY = os.getenv("HOXTON_API_KEY")       # Basic Auth için sadece username olarak kullanılır
 
 router = APIRouter()
+
+@router.get("/subscription/{external_id}")
+def get_hoxton_subscription_with_mail(external_id: str):
+    if not API_BASE_URL or not API_KEY:
+        raise HTTPException(status_code=500, detail="Missing Hoxton API config")
+
+    auth = (API_KEY, "")
+
+    try:
+        sub_res = requests.get(f"{API_BASE_URL}/subscription/{external_id}", auth=auth)
+        if sub_res.status_code != 200:
+            raise HTTPException(status_code=sub_res.status_code, detail="Subscription not found")
+
+        mail_res = requests.get(f"{API_BASE_URL}/subscription/{external_id}/mail", auth=auth)
+        if mail_res.status_code != 200:
+            raise HTTPException(status_code=mail_res.status_code, detail="Mail items not found")
+
+        return {
+            "subscription": sub_res.json(),
+            "mailItems": mail_res.json()
+        }
+
+    except Exception as e:
+        print("Hoxton API error:", str(e))
+        raise HTTPException(status_code=500, detail="Hoxton API request failed")
+
 
 # ✅ GET: /subscription?external_id=... → Abonelik detaylarını döner
 @router.get("/subscription")

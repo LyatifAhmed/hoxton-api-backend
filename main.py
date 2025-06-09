@@ -25,6 +25,9 @@ from hoxton.submit_kyc import router as kyc_router
 from hoxton.customer import router as customer_router
 from hoxton.subscriptions import router as subscriptions_router
 from hoxton.cancel_subscription import router as cancel_router
+from hoxton import subscriptions
+
+
 
 
 # Load environment variables
@@ -204,3 +207,4 @@ app.include_router(kyc_router)
 app.include_router(customer_router)
 app.include_router(subscriptions_router)
 app.include_router(cancel_router)
+app.include_router(subscriptions.router)
