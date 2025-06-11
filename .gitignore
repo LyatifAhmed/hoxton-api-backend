@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # Virtual environment
 venv/
@@ -27,3 +28,6 @@ ngrok-stable-linux-amd64.zip*
 *.log
 .env
 alembic.ini
+
+
+
