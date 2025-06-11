@@ -126,3 +126,4 @@ BetaOffice Team
     except Exception as e:
         print(f"❌ Failed to notify {recipient_email}: {e}")
         log_email_error(e, recipient_email)
+

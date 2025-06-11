@@ -73,6 +73,7 @@ class ScannedMail(Base):
     url_envelope_back = Column(Text)
     file_name = Column(String)
     created_at = Column(DateTime)
+    received_at = Column(DateTime)  # ✅ Bunu ekle
     company_name = Column(String)
 
     sender_name = Column(String)
