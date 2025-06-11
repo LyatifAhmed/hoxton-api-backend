@@ -67,21 +67,22 @@ class ScannedMail(Base):
     __tablename__ = "scanned_mails"
 
     id = Column(Integer, primary_key=True, index=True)
-    external_id = Column(String, index=True)
+    external_id = Column(String, ForeignKey("subscriptions.external_id"), index=True)
     url = Column(Text)
-    url_envelope_front = Column(Text)
-    url_envelope_back = Column(Text)
-    file_name = Column(String)
-    created_at = Column(DateTime)
-    received_at = Column(DateTime)  # ✅ Bunu ekle
+    url_envelope_front = Column(Text, nullable=True)
+    url_envelope_back = Column(Text, nullable=True)
+    file_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime)
     company_name = Column(String)
 
     sender_name = Column(String)
     document_title = Column(String)
-    reference_number = Column(String)
+    reference_number = Column(String, nullable=True)
     summary = Column(String)
     industry = Column(String)
 
-    categories = Column(String)         # Comma-separated
-    sub_categories = Column(String)     # Comma-separated
-    key_information = Column(Text)      # Store JSON string if needed
+    categories = Column(String)         # comma-separated
+    sub_categories = Column(String)     # comma-separated
+    key_information = Column(Text)      # JSON string (optional)
+

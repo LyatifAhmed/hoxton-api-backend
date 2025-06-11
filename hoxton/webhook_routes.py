@@ -21,8 +21,10 @@ async def scanned_mail_webhook(request: Request, db: Session = Depends(get_db)):
         if not subscription:
             raise HTTPException(status_code=404, detail="Subscription not found")
 
+        received_at_str = payload.get("received_at")
+        received_at = datetime.fromisoformat(received_at_str.replace("Z", "+00:00")) if received_at_str else None
+
         mail = ScannedMail(
-            id=str(uuid.uuid4()),
             external_id=external_id,
             sender_name=payload.get("sender_name", ""),
             document_title=payload.get("document_title", ""),
@@ -31,17 +33,18 @@ async def scanned_mail_webhook(request: Request, db: Session = Depends(get_db)):
             url_envelope_front=payload.get("url_envelope_front"),
             url_envelope_back=payload.get("url_envelope_back"),
             company_name=payload.get("company_name"),
-            received_at=datetime.fromisoformat(payload["received_at"].replace("Z", "+00:00")),
+            received_at=received_at,
         )
         db.add(mail)
         db.commit()
 
-        await send_scanned_mail_notification(
-            recipient_email=subscription.customer_email,
-            company_name=mail.company_name,
-            document_title=mail.document_title,
-            document_url=mail.url
-        )
+        if subscription.customer_email:
+            await send_scanned_mail_notification(
+                recipient_email=subscription.customer_email,
+                company_name=mail.company_name,
+                document_title=mail.document_title,
+                document_url=mail.url
+            )
 
         return {"success": True, "message": "Mail saved and notification sent."}
 
