@@ -42,9 +42,11 @@ async def scanned_mail_webhook(request: Request, db: Session = Depends(get_db)):
             await send_scanned_mail_notification(
                 recipient_email=subscription.customer_email,
                 company_name=mail.company_name,
+                sender_name=mail.sender_name,
                 document_title=mail.document_title,
                 document_url=mail.url
             )
+
 
         return {"success": True, "message": "Mail saved and notification sent."}
 

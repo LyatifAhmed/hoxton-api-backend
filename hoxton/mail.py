@@ -55,7 +55,13 @@ BetaOffice Team
         print(f"❌ Failed to send email to {recipient_email}: {e}")
         log_email_error(e, recipient_email)
 
-async def send_scanned_mail_notification(recipient_email: str, company_name: str, sender_name: str, document_title: str):
+async def send_scanned_mail_notification(
+    recipient_email: str,
+    company_name: str,
+    sender_name: str,
+    document_title: str,
+    document_url: str
+):
     msg = EmailMessage()
     msg["From"] = SMTP_USERNAME
     msg["To"] = recipient_email
@@ -69,7 +75,9 @@ You've received new scanned mail for your company: {company_name}
 📨 Sender: {sender_name or 'Unknown'}
 📝 Title: {document_title or 'Untitled'}
 
-You can view it securely in your dashboard:
+🔗 View Document: {document_url}
+
+Or log in to your dashboard:
 https://betaoffice.uk/dashboard/mail
 
 Best regards,  
